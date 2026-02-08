@@ -1,0 +1,590 @@
+﻿      if (e.target === this.overlay) {
+        this.hide();
+      }
+    });
+
+    // Close on Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !this.overlay.classList.contains('hidden')) {
+        this.hide();
+      }
+    });
+
+    // Toggle password visibility
+    document.getElementById('toggle-password')!.addEventListener('click', () => {
+      const input = document.getElementById('server-password') as HTMLInputElement;
+      input.type = input.type === 'password' ? 'text' : 'password';
+    });
+
+    // Form submit
+    this.form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await this.handleSubmit();
+    });
+  }
+
+  /**
+   * Handle form submission
+   */
+  private async handleSubmit(): Promise<void> {
+    const saveBtn = document.getElementById('server-modal-save') as HTMLButtonElement;
+    const errorDiv = document.getElementById('server-modal-error')!;
+    
+    // Disable save button
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+    errorDiv.classList.add('hidden');
+
+    try {
+      const formData = this.getFormData();
+      await this.options.onSave(formData, this.editingId || undefined);
+      this.hide();
+    } catch (error: any) {
+      // Show error
+      errorDiv.classList.remove('hidden');
+      errorDiv.querySelector('.status-message')!.textContent = 
+        error.message || 'Failed to save server';
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Server';
+    }
+  }
+
+  /**
+   * Get form data
+   */
+  private getFormData(): ServerFormData {
+    return {
+      name: (document.getElementById('server-name') as HTMLInputElement).value,
+      description: (document.getElementById('server-description') as HTMLInputElement).value,
+      host: (document.getElementById('server-host') as HTMLInputElement).value,
+      port: parseInt((document.getElementById('server-port') as HTMLInputElement).value, 10),
+      username: (document.getElementById('server-username') as HTMLInputElement).value,
+      password: (document.getElementById('server-password') as HTMLInputElement).value || undefined,
+      authMethod: 'password',
+      saveCredentials: (document.getElementById('server-save-credentials') as HTMLInputElement).checked
+    };
+  }
+
+  /**
+   * Show modal for adding new server
+   */
+  showAdd(): void {
+    this.mode = 'add';
+    this.editingId = null;
+    
+    // Reset form
+    this.form.reset();
+    (document.getElementById('server-port') as HTMLInputElement).value = '22';
+    (document.getElementById('server-save-credentials') as HTMLInputElement).checked = true;
+    
+    // Update title
+    document.getElementById('server-modal-title')!.textContent = 'Add Server';
+    document.getElementById('server-modal-save')!.textContent = 'Save Server';
+    
+    // Clear errors
+    document.getElementById('server-modal-error')!.classList.add('hidden');
+    
+    // Show modal
+    this.overlay.classList.remove('hidden');
+    
+    // Focus first input
+    setTimeout(() => {
+      (document.getElementById('server-name') as HTMLInputElement).focus();
+    }, 100);
+  }
+
+  /**
+   * Show modal for editing existing server
+   */
+  async showEdit(serverId: string): Promise<void> {
+    this.mode = 'edit';
+    this.editingId = serverId;
+
+    // Load server data
+    const server = await window.electronAPI.getServer(serverId);
+    if (!server) {
+      console.error('Server not found:', serverId);
+      return;
+    }
+
+    // Populate form
+    (document.getElementById('server-name') as HTMLInputElement).value = server.name;
+    (document.getElementById('server-description') as HTMLInputElement).value = server.description;
+    (document.getElementById('server-host') as HTMLInputElement).value = server.host;
+    (document.getElementById('server-port') as HTMLInputElement).value = server.port.toString();
+    (document.getElementById('server-username') as HTMLInputElement).value = server.username;
+    (document.getElementById('server-password') as HTMLInputElement).value = '';  // Don't show stored password
+    (document.getElementById('server-save-credentials') as HTMLInputElement).checked = server.saveCredentials;
+
+    // Update title
+    document.getElementById('server-modal-title')!.textContent = 'Edit Server';
+    document.getElementById('server-modal-save')!.textContent = 'Update Server';
+
+    // Clear errors
+    document.getElementById('server-modal-error')!.classList.add('hidden');
+
+    // Show modal
+    this.overlay.classList.remove('hidden');
+
+    // Focus first input
+    setTimeout(() => {
+      (document.getElementById('server-name') as HTMLInputElement).focus();
+    }, 100);
+  }
+
+  /**
+   * Hide the modal
+   */
+  hide(): void {
+    this.overlay.classList.add('hidden');
+    this.options.onClose();
+  }
+}
+
+7. Update HTML (src/renderer/index.html)
+
+Replace the terminal panel header section:
+
+html
+
+<!-- Left Panel: Terminal -->
+<section id="terminal-panel" class="panel">
+  <div class="panel-header">
+    <div class="panel-header-left">
+      <span class="panel-title">Terminal</span>
+      <!-- Server Dropdown Container -->
+      <div id="server-dropdown-container"></div>
+    </div>
+    <div class="panel-header-right">
+      <!-- Empty for now - actions are in dropdown -->
+    </div>
+  </div>
+  <div id="terminal-container"></div>
+</section>
+
+Remove the old ssh-dialog if present (from Phase 2A) - we'll keep using it for Quick Connect but manage it differently.
+
+Keep the Quick Connect dialog (from Phase 2A) but update the ID:
+
+html
+
+<!-- Quick Connect Dialog (keep from Phase 2A, just ensure it exists) -->
+<div id="quick-connect-dialog" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 class="modal-title">Quick Connect</h2>
+      <button class="modal-close" id="quick-connect-close">âœ•</button>
+    </div>
+    <div class="modal-body">
+      <form id="quick-connect-form">
+        <div class="form-group">
+          <label for="qc-host">Host</label>
+          <input type="text" id="qc-host" name="host" 
+                 placeholder="192.168.1.100" required>
+        </div>
+        <div class="form-group">
+          <label for="qc-port">Port</label>
+          <input type="number" id="qc-port" name="port" 
+                 value="22" min="1" max="65535" required>
+        </div>
+        <div class="form-group">
+          <label for="qc-username">Username</label>
+          <input type="text" id="qc-username" name="username" 
+                 placeholder="pi" required>
+        </div>
+        <div class="form-group">
+          <label for="qc-password">Password</label>
+          <input type="password" id="qc-password" name="password" 
+                 placeholder="Enter password" required>
+        </div>
+        <div id="qc-error" class="form-status error hidden">
+          <span class="status-message"></span>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" id="qc-cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="qc-submit" form="quick-connect-form">
+        Connect
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Password Prompt Dialog (for servers without stored password) -->
+<div id="password-prompt-dialog" class="modal-overlay hidden">
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <h2 class="modal-title">Enter Password</h2>
+      <button class="modal-close" id="password-prompt-close">âœ•</button>
+    </div>
+    <div class="modal-body">
+      <form id="password-prompt-form">
+        <p id="password-prompt-message" class="form-hint" style="margin-bottom: 12px;">
+          Enter password for server
+        </p>
+        <div class="form-group">
+          <label for="prompt-password">Password</label>
+          <input type="password" id="prompt-password" name="password" required>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="prompt-save-password">
+            <span>Save password for future connections</span>
+          </label>
+        </div>
+        <div id="password-prompt-error" class="form-status error hidden">
+          <span class="status-message"></span>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" id="password-prompt-cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="password-prompt-submit" 
+              form="password-prompt-form">
+        Connect
+      </button>
+    </div>
+  </div>
+</div>
+
+Add stylesheet link in <head>:
+
+html
+
+<link rel="stylesheet" href="styles/components.css">
+
+8. New CSS File (src/renderer/styles/components.css)
+
+css
+
+/**
+ * Component Styles
+ * Dropdown, modals, and related components
+ */
+
+/* ==================== SERVER DROPDOWN ==================== */
+
+.server-dropdown {
+  position: relative;
+  margin-left: 12px;
+}
+
+.server-dropdown-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  max-width: 180px;
+  min-width: 100px;
+}
+
+.server-dropdown-button:hover,
+.server-dropdown-button.open {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.disconnected,
+.status-dot.local {
+  background-color: var(--text-secondary);
+}
+
+.status-dot.connecting {
+  background-color: var(--accent-warning);
+  animation: pulse 1s infinite;
+}
+
+.status-dot.connected {
+  background-color: var(--accent-success);
+  box-shadow: 0 0 6px var(--accent-success);
+}
+
+.status-dot.error {
+  background-color: var(--accent-error);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.dropdown-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  text-align: left;
+}
+
+.dropdown-arrow {
+  font-size: 10px;
+  opacity: 0.6;
+  transition: transform var(--transition-fast);
+}
+
+.server-dropdown-button.open .dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+/* Dropdown Menu */
+.server-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 280px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.server-dropdown-menu.hidden {
+  display: none;
+}
+
+.menu-section {
+  padding: 4px 0;
+}
+
+.menu-section-label {
+  padding: 6px 12px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.menu-item:hover {
+  background: var(--bg-hover);
+}
+
+.menu-item.active {
+  background: var(--bg-active);
+}
+
+.menu-item .menu-icon {
+  width: 16px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.menu-item .menu-item-label {
+  flex: 1;
+}
+
+.menu-item.disconnect {
+  color: var(--accent-error);
+}
+
+.menu-item.disconnect:hover {
+  background: rgba(241, 76, 76, 0.1);
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--border-primary);
+  margin: 4px 0;
+}
+
+.menu-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Server Item in Menu */
+.server-item {
+  position: relative;
+}
+
+.server-item .server-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.server-item .server-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-item .server-host {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.server-item .server-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.server-item:hover .server-actions {
+  opacity: 1;
+}
+
+.server-item .server-actions button {
+  padding: 2px 4px;
+  font-size: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity var(--transition-fast);
+}
+
+.server-item .server-actions button:hover {
+  opacity: 1;
+}
+
+.server-item .no-password-icon {
+  font-size: 10px;
+  opacity: 0.5;
+}
+
+/* ==================== MODALS ==================== */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(2px);
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  width: 400px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  animation: modalSlideIn 0.2s ease;
+}
+
+.modal.modal-small {
+  width: 340px;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.modal-close {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  transition: all var(--transition-fast);
+}
+
+.modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+}
+
+/* ==================== FORMS ==================== */
+
+.form-section {
+  margin-bottom: 16px;
+}
+
+.form-section:last-child {
+  margin-bottom: 0;
+}
+
+.form-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+

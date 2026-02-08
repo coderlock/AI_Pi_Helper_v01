@@ -1,0 +1,74 @@
+/**
+ * Terminal Styles
+ * xterm.js customizations and overrides
+ */
+
+/* Terminal Container */
+#terminal-container {
+  background-color: var(--bg-primary);
+}
+
+/* xterm.js Overrides */
+#terminal-container .xterm {
+  padding: 8px;
+  height: 100%;
+}
+
+#terminal-container .xterm-viewport {
+  /* Custom scrollbar for terminal */
+  overflow-y: auto !important;
+}
+
+#terminal-container .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+#terminal-container .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#terminal-container .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+#terminal-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Terminal selection */
+#terminal-container .xterm-selection div {
+  background-color: rgba(38, 79, 120, 0.7) !important;
+}
+
+/* Cursor customization */
+#terminal-container .xterm-cursor-layer {
+  /* Handled by xterm options */
+}
+
+/* Terminal text rendering */
+#terminal-container .xterm-rows {
+  /* Improve text rendering */
+  text-rendering: optimizeLegibility;
+}
+
+/* Link hover state */
+#terminal-container .xterm-link-layer a {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+/* Terminal focus indicator */
+#terminal-container:focus-within {
+  /* Optional: Add focus indicator around terminal */
+}
+
+/* Screen reader support */
+#terminal-container .xterm-accessibility {
+  /* Accessibility styles handled by xterm */
+}
+
+/* Helper text layer */
+#terminal-container .xterm-helper-textarea {
+  /* Hidden textarea for clipboard operations */
+}

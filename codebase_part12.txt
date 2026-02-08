@@ -1,0 +1,580 @@
+﻿ * Add these variables after existing declarations
+ */
+let sshManager: SSHManager | null = null;
+let isSSHActive = false;
+
+/**
+ * Add this function after initializePty()
+ */
+function initializeSSHManager(): void {
+  sshManager = new SSHManager({
+    onData: (data: string) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_DATA, data);
+      }
+    },
+    onStatus: (status: SSHStatus, message?: string) => {
+      console.log(`SSH Status: ${status}${message ? ` - ${message}` : ''}`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ssh:status', { status, message });
+      }
+      
+      // If disconnected or error, flag SSH as inactive
+      if (status === 'disconnected' || status === 'error') {
+        isSSHActive = false;
+      } else if (status === 'connected') {
+        isSSHActive = true;
+      }
+    }
+  });
+}
+
+/**
+ * Update the setupIpcHandlers() function - add these handlers
+ */
+function setupIpcHandlers(): void {
+  // ... keep all existing handlers ...
+
+  // ============== NEW SSH HANDLERS ==============
+
+  // Connect to SSH server
+  ipcMain.handle('ssh:connect', async (_event, config: SSHConfig) => {
+    if (!sshManager) {
+      initializeSSHManager();
+    }
+
+    try {
+      // Clear the terminal before connecting
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_DATA, '\x1b[2J\x1b[H');
+        mainWindow.webContents.send(
+          IPC_CHANNELS.TERMINAL_DATA,
+          `\x1b[33mConnecting to ${config.username}@${config.host}:${config.port}...\x1b[0m\r\n`
+        );
+      }
+
+      const success = await sshManager!.connect(config);
+      
+      if (success) {
+        isSSHActive = true;
+        return { success: true };
+      } else {
+        return { success: false, error: 'Connection failed' };
+      }
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Disconnect SSH and return to local terminal
+  ipcMain.handle('ssh:disconnect', async () => {
+    if (sshManager) {
+      sshManager.disconnect();
+    }
+    isSSHActive = false;
+
+    // Clear terminal and show message
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_DATA, '\x1b[2J\x1b[H');
+      mainWindow.webContents.send(
+        IPC_CHANNELS.TERMINAL_DATA,
+        '\x1b[33mDisconnected from SSH. Returning to local terminal...\x1b[0m\r\n\r\n'
+      );
+    }
+
+    // Reinitialize local PTY
+    if (ptyManager) {
+      ptyManager.dispose();
+    }
+    initializePty();
+
+    return { success: true };
+  });
+
+  // Get SSH status
+  ipcMain.handle('ssh:status', () => {
+    return {
+      isConnected: sshManager?.isConnected() || false,
+      status: sshManager?.getStatus() || 'disconnected',
+      connectionInfo: sshManager?.getConnectionInfo()
+    };
+  });
+
+  // ============== UPDATE EXISTING TERMINAL HANDLER ==============
+  // Replace the existing TERMINAL_INPUT handler with this:
+  
+  ipcMain.on(IPC_CHANNELS.TERMINAL_INPUT, (_event, data: string) => {
+    // Route to SSH if connected, otherwise to local PTY
+    if (isSSHActive && sshManager?.isConnected()) {
+      sshManager.write(data);
+    } else if (ptyManager) {
+      ptyManager.write(data);
+    }
+  });
+
+  // ============== UPDATE EXISTING RESIZE HANDLER ==============
+  // Replace the existing TERMINAL_RESIZE handler with this:
+
+  ipcMain.on(IPC_CHANNELS.TERMINAL_RESIZE, (_event, cols: number, rows: number) => {
+    // Resize both SSH and local PTY
+    if (sshManager?.isConnected()) {
+      sshManager.resize(cols, rows);
+    }
+    if (ptyManager) {
+      ptyManager.resize(cols, rows);
+    }
+  });
+}
+
+/**
+ * Update the window close handler to cleanup SSH
+ * Find the mainWindow.on('closed') handler and update it:
+ */
+mainWindow.on('closed', () => {
+  mainWindow = null;
+  if (ptyManager) {
+    ptyManager.dispose();
+    ptyManager = null;
+  }
+  if (sshManager) {
+    sshManager.disconnect();
+    sshManager = null;
+  }
+});
+
+Step 4: Update Preload Script
+
+Update src/main/preload.ts - add SSH methods:
+
+typescript
+
+/**
+ * Add to the electronAPI object (inside contextBridge.exposeInMainWorld)
+ */
+
+// Add these new methods to the existing electronAPI object:
+
+// SSH connection
+sshConnect: (config: { host: string; port: number; username: string; password: string }) => {
+  return ipcRenderer.invoke('ssh:connect', config);
+},
+
+sshDisconnect: () => {
+  return ipcRenderer.invoke('ssh:disconnect');
+},
+
+sshGetStatus: () => {
+  return ipcRenderer.invoke('ssh:status');
+},
+
+onSSHStatus: (callback: (data: { status: string; message?: string }) => void) => {
+  const wrappedCallback = (_event: Electron.IpcRendererEvent, data: { status: string; message?: string }) => {
+    callback(data);
+  };
+  ipcRenderer.on('ssh:status', wrappedCallback);
+},
+
+Step 5: Update Types
+
+Update src/shared/types.ts - add SSH types to the ElectronAPI interface:
+
+typescript
+
+/**
+ * Add these to the ElectronAPI interface
+ */
+
+// SSH connection (add to existing interface)
+sshConnect: (config: { 
+  host: string; 
+  port: number; 
+  username: string; 
+  password: string 
+}) => Promise<{ success: boolean; error?: string }>;
+
+sshDisconnect: () => Promise<{ success: boolean }>;
+
+sshGetStatus: () => Promise<{ 
+  isConnected: boolean; 
+  status: string;
+  connectionInfo?: { host: string; username: string } | null 
+}>;
+
+onSSHStatus: (callback: (data: { status: string; message?: string }) => void) => void;
+
+Step 6: Update HTML
+
+Update src/renderer/index.html - add a simple connection UI:
+
+Find the terminal panel header and replace it with:
+
+html
+
+<!-- Left Panel: Terminal -->
+<section id="terminal-panel" class="panel">
+  <div class="panel-header">
+    <div class="panel-header-left">
+      <span class="panel-title">Terminal</span>
+      <!-- Simple connection indicator -->
+      <span id="connection-badge" class="connection-badge local">
+        <span class="status-dot"></span>
+        <span id="connection-label">Local</span>
+      </span>
+    </div>
+    <div class="panel-header-right">
+      <!-- Simple test buttons -->
+      <button id="btn-ssh-connect" class="header-button" title="Connect to SSH">
+        ðŸ”Œ Connect
+      </button>
+      <button id="btn-ssh-disconnect" class="header-button hidden" title="Disconnect">
+        â Disconnect
+      </button>
+    </div>
+  </div>
+  <div id="terminal-container"></div>
+</section>
+
+Add this to the modal container (before </body>):
+
+html
+
+<!-- Simple SSH Connect Dialog -->
+<div id="ssh-dialog" class="modal-overlay hidden">
+  <div class="modal ssh-modal">
+    <div class="modal-header">
+      <h2 class="modal-title">Connect to SSH Server</h2>
+      <button class="modal-close" id="ssh-dialog-close">âœ•</button>
+    </div>
+    <div class="modal-body">
+      <form id="ssh-form">
+        <div class="form-group">
+          <label for="ssh-host">Host</label>
+          <input type="text" id="ssh-host" name="host" 
+                 placeholder="192.168.1.100" required>
+        </div>
+        <div class="form-group">
+          <label for="ssh-port">Port</label>
+          <input type="number" id="ssh-port" name="port" 
+                 value="22" min="1" max="65535" required>
+        </div>
+        <div class="form-group">
+          <label for="ssh-username">Username</label>
+          <input type="text" id="ssh-username" name="username" 
+                 placeholder="pi" required>
+        </div>
+        <div class="form-group">
+          <label for="ssh-password">Password</label>
+          <input type="password" id="ssh-password" name="password" 
+                 placeholder="Enter password" required>
+        </div>
+        <div id="ssh-error" class="form-status error hidden">
+          <span class="status-message"></span>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" id="btn-ssh-cancel">
+        Cancel
+      </button>
+      <button type="submit" class="btn btn-primary" id="btn-ssh-submit" form="ssh-form">
+        Connect
+      </button>
+    </div>
+  </div>
+</div>
+
+Step 7: Add Simple CSS
+
+Add to src/renderer/styles/layout.css:
+
+css
+
+/* ==================== Header Buttons ==================== */
+.header-button {
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.header-button:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.header-button.hidden {
+  display: none;
+}
+
+/* Connection Badge Updates */
+.connection-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  background-color: var(--bg-tertiary);
+  margin-left: 10px;
+}
+
+.connection-badge .status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.connection-badge.local .status-dot {
+  background-color: var(--text-secondary);
+}
+
+.connection-badge.connecting .status-dot {
+  background-color: var(--accent-warning);
+  animation: pulse 1s infinite;
+}
+
+.connection-badge.connected .status-dot {
+  background-color: var(--accent-success);
+  box-shadow: 0 0 6px var(--accent-success);
+}
+
+.connection-badge.error .status-dot {
+  background-color: var(--accent-error);
+}
+
+/* ==================== Simple Modal ==================== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  width: 360px;
+  max-width: 90%;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.modal-close {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 16px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+}
+
+/* Form Styles */
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-group:last-of-type {
+  margin-bottom: 0;
+}
+
+.form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+}
+
+.form-group input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.form-group input::placeholder {
+  color: var(--text-disabled);
+}
+
+.form-status {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.form-status.error {
+  background: rgba(241, 76, 76, 0.1);
+  border: 1px solid var(--accent-error);
+  color: var(--accent-error);
+}
+
+.form-status.hidden {
+  display: none;
+}
+
+/* Buttons */
+.btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all var(--transition-fast);
+}
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--accent-secondary);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+Step 8: Update Renderer
+
+Update src/renderer/renderer.ts - add SSH UI logic:
+
+typescript
+
+/**
+ * Add these variables at the top (after existing variables)
+ */
+let isSSHConnected = false;
+
+/**
+ * Add this function after existing functions
+ */
+function initializeSSH(): void {
+  const connectBtn = document.getElementById('btn-ssh-connect');
+  const disconnectBtn = document.getElementById('btn-ssh-disconnect');
+  const dialog = document.getElementById('ssh-dialog');
+  const form = document.getElementById('ssh-form') as HTMLFormElement;
+  const closeBtn = document.getElementById('ssh-dialog-close');
+  const cancelBtn = document.getElementById('btn-ssh-cancel');
+  const submitBtn = document.getElementById('btn-ssh-submit');
+  const errorDiv = document.getElementById('ssh-error');
+  const connectionBadge = document.getElementById('connection-badge');
+  const connectionLabel = document.getElementById('connection-label');
+
+  if (!connectBtn || !disconnectBtn || !dialog || !form) {
+    console.error('SSH UI elements not found');
+    return;
+  }
+
+  // Show connect dialog
+  connectBtn.addEventListener('click', () => {
+    dialog.classList.remove('hidden');
+    const hostInput = document.getElementById('ssh-host') as HTMLInputElement;
+    hostInput?.focus();
+  });
+
+  // Close dialog
+  const closeDialog = () => {
+    dialog.classList.add('hidden');
+    form.reset();
+    errorDiv?.classList.add('hidden');
+  };
+
+  closeBtn?.addEventListener('click', closeDialog);
+  cancelBtn?.addEventListener('click', closeDialog);
+
+  // Close on overlay click
+  dialog.addEventListener('click', (e) => {
+    if (e.target === dialog) {
+      closeDialog();
+    }
+  });
+
+  // Close on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !dialog.classList.contains('hidden')) {
+      closeDialog();
+    }
+  });
+
+  // Handle form submit
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const host = (document.getElementById('ssh-host') as HTMLInputElement).value;
+    const port = parseInt((document.getElementById('ssh-port') as HTMLInputElement).value, 10);
+    const username = (document.getElementById('ssh-username') as HTMLInputElement).value;
+    const password = (document.getElementById('ssh-password') as HTMLInputElement).value;
+
+    // Disable submit button
+    if (submitBtn) {
+

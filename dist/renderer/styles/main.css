@@ -1,0 +1,132 @@
+/**
+ * Main Styles
+ * Global styles and CSS custom properties
+ */
+
+/* CSS Custom Properties (Theme Variables) */
+:root {
+  /* Background colors */
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d2d;
+  --bg-hover: #3c3c3c;
+  --bg-active: #094771;
+
+  /* Text colors */
+  --text-primary: #d4d4d4;
+  --text-secondary: #858585;
+  --text-disabled: #5a5a5a;
+
+  /* Accent colors */
+  --accent-primary: #007acc;
+  --accent-secondary: #0098ff;
+  --accent-success: #0dbc79;
+  --accent-warning: #e5e510;
+  --accent-error: #f14c4c;
+
+  /* Border colors */
+  --border-primary: #3c3c3c;
+  --border-secondary: #2d2d2d;
+
+  /* Dimensions */
+  --titlebar-height: 32px;
+  --statusbar-height: 24px;
+  --panel-header-height: 35px;
+
+  /* Transitions */
+  --transition-fast: 0.1s ease;
+  --transition-normal: 0.2s ease;
+}
+
+/* Reset */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Global Styles */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Selection */
+::selection {
+  background-color: var(--accent-primary);
+  color: white;
+}
+
+/* Scrollbar Styles */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-hover);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Focus Styles */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 1px solid var(--accent-primary);
+  outline-offset: -1px;
+}
+
+/* Button Reset */
+button {
+  font-family: inherit;
+  font-size: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Utility Classes */
+.hidden {
+  display: none !important;
+}
+
+.disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Prevent text selection during drag */
+.resize-dragging {
+  user-select: none;
+  cursor: col-resize !important;
+}
+
+.resize-dragging * {
+  cursor: col-resize !important;
+}

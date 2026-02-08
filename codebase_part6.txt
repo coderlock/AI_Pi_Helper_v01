@@ -1,0 +1,533 @@
+﻿            </button>
+            <button type="submit" class="btn btn-primary" id="server-modal-save" 
+                    form="server-modal-form">
+              Save Server
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Append to body
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    this.overlay = document.getElementById('server-modal-overlay')!;
+    this.form = document.getElementById('server-modal-form') as HTMLFormElement;
+  }
+
+  /**
+   * Attach event listeners
+   */
+  private attachEventListeners(): void {
+    // Prevent duplicate attachment
+    if (this.listenersAttached) return;
+    this.listenersAttached = true;
+
+    // Close button
+    document.getElementById('server-modal-close')!.addEventListener('click', () => {
+      this.hide();
+    });
+
+    // Cancel button
+    document.getElementById('server-modal-cancel')!.addEventListener('click', () => {
+      this.hide();
+    });
+
+    // Test connection button
+    document.getElementById('server-modal-test')!.addEventListener('click', async () => {
+      await this.handleTestConnection();
+    });
+
+    // Close on overlay click
+    this.overlay.addEventListener('click', (e) => {
+      if (e.target === this.overlay) {
+        this.hide();
+      }
+    });
+
+    // Close on Escape
+    const escapeHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !this.overlay.classList.contains('hidden')) {
+        this.hide();
+      }
+    };
+    document.addEventListener('keydown', escapeHandler);
+
+    // Toggle password visibility
+    document.getElementById('toggle-password')!.addEventListener('click', () => {
+      const input = document.getElementById('server-password') as HTMLInputElement;
+      input.type = input.type === 'password' ? 'text' : 'password';
+    });
+
+    // Form submit
+    this.form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await this.handleSubmit();
+    });
+  }
+
+  /**
+   * Handle test connection
+   */
+  private async handleTestConnection(): Promise<void> {
+    const testBtn = document.getElementById('server-modal-test') as HTMLButtonElement;
+    const statusDiv = document.getElementById('server-modal-status')!;
+    const statusMsg = statusDiv.querySelector('.status-message')!;
+
+    // Validate required fields
+    const host = (document.getElementById('server-host') as HTMLInputElement).value.trim();
+    const port = parseInt((document.getElementById('server-port') as HTMLInputElement).value, 10);
+    const username = (document.getElementById('server-username') as HTMLInputElement).value.trim();
+    const password = (document.getElementById('server-password') as HTMLInputElement).value;
+
+    if (!host || !username || !password) {
+      statusDiv.classList.remove('hidden', 'success');
+      statusDiv.classList.add('error');
+      statusMsg.textContent = 'Please fill in host, username, and password to test';
+      return;
+    }
+
+    // Disable test button
+    testBtn.disabled = true;
+    testBtn.textContent = 'Testing...';
+    statusDiv.classList.remove('hidden', 'error', 'success');
+    statusMsg.textContent = 'Testing connection...';
+
+    try {
+      const result = await window.electronAPI.testConnection({ host, port, username, password });
+      
+      if (result.success) {
+        statusDiv.classList.add('success');
+        statusMsg.textContent = 'âœ“ Connection successful!';
+      } else {
+        statusDiv.classList.add('error');
+        statusMsg.textContent = `âœ— Connection failed: ${result.error || 'Unknown error'}`;
+      }
+    } catch (error: any) {
+      statusDiv.classList.add('error');
+      statusMsg.textContent = `âœ— Connection failed: ${error.message || 'Unknown error'}`;
+    } finally {
+      testBtn.disabled = false;
+      testBtn.textContent = 'Test Connection';
+    }
+  }
+
+  /**
+   * Handle form submission
+   */
+  private async handleSubmit(): Promise<void> {
+    const saveBtn = document.getElementById('server-modal-save') as HTMLButtonElement;
+    const statusDiv = document.getElementById('server-modal-status')!;
+    const statusMsg = statusDiv.querySelector('.status-message')!;
+    
+    // Disable save button
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+    statusDiv.classList.add('hidden');
+
+    try {
+      const formData = this.getFormData();
+      await this.options.onSave(formData, this.editingId || undefined);
+      this.hide();
+    } catch (error: any) {
+      // Show error
+      statusDiv.classList.remove('hidden', 'success');
+      statusDiv.classList.add('error');
+      statusMsg.textContent = error.message || 'Failed to save server';
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = this.mode === 'edit' ? 'Update Server' : 'Save Server';
+    }
+  }
+
+  /**
+   * Get form data
+   */
+  private getFormData(): ServerFormData {
+    return {
+      name: (document.getElementById('server-name') as HTMLInputElement).value,
+      description: (document.getElementById('server-description') as HTMLInputElement).value,
+      host: (document.getElementById('server-host') as HTMLInputElement).value,
+      port: parseInt((document.getElementById('server-port') as HTMLInputElement).value, 10),
+      username: (document.getElementById('server-username') as HTMLInputElement).value,
+      password: (document.getElementById('server-password') as HTMLInputElement).value || undefined,
+      authMethod: 'password',
+      saveCredentials: (document.getElementById('server-save-credentials') as HTMLInputElement).checked
+    };
+  }
+
+  /**
+   * Show modal for adding new server
+   */
+  showAdd(): void {
+    this.mode = 'add';
+    this.editingId = null;
+    
+    // Reset form
+    this.form.reset();
+    
+    // Get all input elements
+    const nameInput = document.getElementById('server-name') as HTMLInputElement;
+    const descInput = document.getElementById('server-description') as HTMLInputElement;
+    const hostInput = document.getElementById('server-host') as HTMLInputElement;
+    const portInput = document.getElementById('server-port') as HTMLInputElement;
+    const userInput = document.getElementById('server-username') as HTMLInputElement;
+    const passInput = document.getElementById('server-password') as HTMLInputElement;
+    const saveCredsInput = document.getElementById('server-save-credentials') as HTMLInputElement;
+    
+    // Reset values
+    portInput.value = '22';
+    saveCredsInput.checked = true;
+    
+    // Explicitly enable and remove any blocking attributes
+    [nameInput, descInput, hostInput, portInput, userInput, passInput, saveCredsInput].forEach(input => {
+      if (input) {
+        input.disabled = false;
+        input.removeAttribute('readonly');
+        input.style.pointerEvents = 'auto';
+      }
+    });
+    
+    // Update title and buttons
+    document.getElementById('server-modal-title')!.textContent = 'Add Server';
+    const saveBtn = document.getElementById('server-modal-save') as HTMLButtonElement;
+    saveBtn.textContent = 'Save Server';
+    saveBtn.disabled = false;
+    
+    const testBtn = document.getElementById('server-modal-test') as HTMLButtonElement;
+    testBtn.disabled = false;
+    testBtn.textContent = 'Test Connection';
+    
+    // Clear status
+    document.getElementById('server-modal-status')!.classList.add('hidden');
+    
+    // Show modal
+    this.overlay.classList.remove('hidden');
+    this.overlay.style.pointerEvents = 'auto';
+    
+    // Focus first input
+    setTimeout(() => {
+      nameInput?.focus();
+    }, 100);
+  }
+
+  /**
+   * Show modal for editing existing server
+   */
+  async showEdit(serverId: string): Promise<void> {
+    this.mode = 'edit';
+    this.editingId = serverId;
+
+    // Load server data
+    const server = await window.electronAPI.getServer(serverId);
+    if (!server) {
+      console.error('Server not found:', serverId);
+      return;
+    }
+
+    // Get all input elements
+    const nameInput = document.getElementById('server-name') as HTMLInputElement;
+    const descInput = document.getElementById('server-description') as HTMLInputElement;
+    const hostInput = document.getElementById('server-host') as HTMLInputElement;
+    const portInput = document.getElementById('server-port') as HTMLInputElement;
+    const userInput = document.getElementById('server-username') as HTMLInputElement;
+    const passInput = document.getElementById('server-password') as HTMLInputElement;
+    const saveCredsInput = document.getElementById('server-save-credentials') as HTMLInputElement;
+
+    // Populate form
+    nameInput.value = server.name;
+    descInput.value = server.description;
+    hostInput.value = server.host;
+    portInput.value = server.port.toString();
+    userInput.value = server.username;
+    passInput.value = '';  // Don't show stored password
+    saveCredsInput.checked = server.saveCredentials;
+
+    // Explicitly enable and remove any blocking attributes
+    [nameInput, descInput, hostInput, portInput, userInput, passInput, saveCredsInput].forEach(input => {
+      if (input) {
+        input.disabled = false;
+        input.removeAttribute('readonly');
+        input.style.pointerEvents = 'auto';
+      }
+    });
+
+    // Update title and buttons
+    document.getElementById('server-modal-title')!.textContent = 'Edit Server';
+    const saveBtn = document.getElementById('server-modal-save') as HTMLButtonElement;
+    saveBtn.textContent = 'Update Server';
+    saveBtn.disabled = false;
+    
+    const testBtn = document.getElementById('server-modal-test') as HTMLButtonElement;
+    testBtn.disabled = false;
+    testBtn.textContent = 'Test Connection';
+
+    // Clear status
+    document.getElementById('server-modal-status')!.classList.add('hidden');
+
+    // Show modal
+    this.overlay.classList.remove('hidden');
+    this.overlay.style.pointerEvents = 'auto';
+
+    // Focus first input
+    setTimeout(() => {
+      nameInput?.focus();
+    }, 100);
+  }
+
+  /**
+   * Hide the modal
+   */
+  hide(): void {
+    this.overlay.classList.add('hidden');
+    this.options.onClose();
+  }
+}
+
+
+===== tsconfig.json =====
+
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020", "DOM"],
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "moduleResolution": "node"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
+
+===== webpack.config.js =====
+
+const path = require('path');
+const CopyPlugin = require('copy-webpack-plugin');
+
+module.exports = {
+  mode: process.env.NODE_ENV === 'development' ? 'development' : 'production',
+  target: 'electron-renderer',
+  
+  entry: './src/renderer/renderer.ts',
+  
+  output: {
+    path: path.resolve(__dirname, 'dist/renderer'),
+    filename: 'renderer.bundle.js'
+  },
+  
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        use: 'ts-loader',
+        exclude: /node_modules/
+      },
+      {
+        test: /\.css$/,
+        use: ['style-loader', 'css-loader']
+      }
+    ]
+  },
+  
+  resolve: {
+    extensions: ['.ts', '.js', '.css']
+  },
+  
+  plugins: [
+    new CopyPlugin({
+      patterns: [
+        { 
+          from: 'src/renderer/index.html', 
+          to: 'index.html'
+        },
+        { 
+          from: 'src/renderer/styles', 
+          to: 'styles'
+        }
+      ]
+    })
+  ],
+  
+  devtool: 'source-map',
+  
+  // Externals for Electron builtins if needed
+  externals: {
+    electron: 'commonjs electron'
+  }
+};
+
+
+===== PHASE1_BUILDPLAN.MD =====
+
+## Environment Setup
+
+Part 1: Development Environment Setup
+
+Follow these steps before starting the vibe coding session:
+Step 1: Install Node.js
+
+    Go to https://nodejs.org/
+    Download the LTS version (20.x or newer)
+    Run the installer with default settings
+    Verify installation by opening a new terminal:
+
+    bash
+
+    node --version
+    npm --version
+
+Step 2: Install Git
+
+Step 3: Install VS Code Extensions
+
+    Open VS Code and install these extensions (Ctrl+Shift+X):
+    Extension	ID	Purpose
+    ESLint	dbaeumer.vscode-eslint	Code linting
+    Prettier	esbenp.prettier-vscode	Code formatting
+    TypeScript	Built-in	Type checking
+    npm Intellisense	christian-kohler.npm-intellisense	Auto-complete imports
+
+Step 4: Create Project Directory
+
+
+    # Open terminal (PowerShell or CMD)
+    mkdir C:\Users\mike_\OneDrive\Documents\AI_pi_helper
+    cd C:\Users\mike_\OneDrive\Documents\AI_pi_helper
+
+    # Open in VS Code
+    code .
+
+    Step 5: Initialize the Project
+
+    In the VS Code integrated terminal (Ctrl+`):
+
+    bash
+
+    # Initialize npm project
+    npm init -y
+
+    # Install Electron and build tools
+    npm install electron --save-dev
+    npm install typescript --save-dev
+    npm install ts-node --save-dev
+    npm install electron-builder --save-dev
+
+    # Install xterm.js for terminal emulation
+    npm install xterm
+    npm install xterm-addon-fit
+    npm install xterm-addon-web-links
+
+    # Install additional dependencies
+    npm install electron-store
+
+    # Initialize TypeScript
+    npx tsc --init
+
+Step 6: Verify Setup
+
+    Your package.json should now have dependencies. Check that node_modules folder exists.
+
+
+## Part 2: Build Plan Markdown for Sonnet 4.5
+
+Save the following as PHASE1_BUILD_PLAN.md in your project root, then use it as context for your vibe coding session:
+
+markdown
+
+# Pi Assistant - Phase 1 Build Plan
+## Electron App with xterm.js Terminal
+
+### Project Overview
+
+Build a Windows desktop application using Electron that displays a functional terminal emulator. This is the foundation for a Raspberry Pi SSH management tool with AI assistance.
+
+### Target Outcome
+
+A working Electron app with:
+- Split-pane layout (terminal left, placeholder chat panel right)
+- Functional xterm.js terminal with local shell (PowerShell on Windows)
+- Resizable panels
+- Dark theme matching VS Code aesthetics
+- Window controls (minimize, maximize, close)
+- Proper TypeScript throughout
+
+---
+
+### Tech Stack
+
+|
+ Component 
+|
+ Technology 
+|
+ Version 
+|
+
+|
+-----------
+|
+------------
+|
+---------
+|
+
+|
+ Runtime 
+|
+ Electron 
+|
+ ^28.0.0 
+|
+
+|
+ Language 
+|
+ TypeScript 
+|
+ ^5.3.0 
+|
+
+|
+ Terminal 
+|
+ xterm.js 
+|
+ ^5.3.0 
+|
+
+|
+ Styling 
+|
+ Plain CSS 
+|
+ - 
+|
+
+|
+ Build 
+|
+ electron-builder 
+|
+ ^24.0.0 
+|
+
+
+---
+
+### Project Structure
+
+Create this exact file structure:
+
+pi-assistant/
+â”œâ”€â”€ src/
+â”‚ â”œâ”€â”€ main/
+

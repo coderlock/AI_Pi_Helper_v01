@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:;">
+    <title>Pi Assistant</title>
+    
+    <!-- Stylesheets (loaded by webpack) -->
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/layout.css">
+    <link rel="stylesheet" href="styles/terminal.css">
+    <link rel="stylesheet" href="styles/components.css">
+</head>
+<body>
+    <!-- Custom Title Bar -->
+    <header id="titlebar">
+        <div class="titlebar-drag-region">
+            <div class="titlebar-icon">
+                <!-- TODO: Add app icon SVG -->
+                <span class="icon-placeholder">🍓</span>
+            </div>
+            <span class="titlebar-title">Pi Assistant</span>
+        </div>
+        <div class="titlebar-controls">
+            <button id="minimize-btn" class="titlebar-button" aria-label="Minimize">
+                <svg width="10" height="1" viewBox="0 0 10 1">
+                    <rect width="10" height="1" fill="currentColor"/>
+                </svg>
+            </button>
+            <button id="maximize-btn" class="titlebar-button" aria-label="Maximize">
+                <svg width="10" height="10" viewBox="0 0 10 10">
+                    <rect width="10" height="10" fill="none" stroke="currentColor" stroke-width="1"/>
+                </svg>
+            </button>
+            <button id="close-btn" class="titlebar-button close-button" aria-label="Close">
+                <svg width="10" height="10" viewBox="0 0 10 10">
+                    <line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" stroke-width="1.2"/>
+                    <line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" stroke-width="1.2"/>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main id="main-container">
+        <!-- Left Panel: Terminal -->
+        <section id="terminal-panel" class="panel">
+            <div class="panel-header">
+                <div class="panel-header-left">
+                    <span class="panel-title">Terminal</span>
+                    <!-- Server Dropdown Container -->
+                    <div id="server-dropdown-container"></div>
+                </div>
+                <div class="panel-header-right">
+                    <!-- Actions moved to dropdown -->
+                </div>
+            </div>
+            <div id="terminal-container"></div>
+        </section>
+
+        <!-- Resize Handle -->
+        <div id="resize-handle" role="separator" aria-label="Resize panels">
+            <div class="resize-handle-line"></div>
+        </div>
+
+        <!-- Right Panel: AI Chat (Placeholder) -->
+        <section id="chat-panel" class="panel">
+            <div class="panel-header">
+                <div class="panel-header-left">
+                    <span class="panel-title">AI Assistant</span>
+                </div>
+                <div class="panel-header-right">
+                    <span class="model-badge">Claude 3.5 Sonnet</span>
+                </div>
+            </div>
+            <div id="chat-container">
+                <div class="chat-placeholder">
+                    <div class="placeholder-icon">🤖</div>
+                    <h2>AI Assistant</h2>
+                    <p>Chat functionality will be implemented in Phase 4.</p>
+                    <p class="placeholder-hint">For now, use the terminal on the left to interact with your system.</p>
+                </div>
+            </div>
+            <!-- Chat input placeholder -->
+            <div id="chat-input-container" class="disabled">
+                <textarea 
+                    id="chat-input" 
+                    placeholder="Ask the AI assistant... (Coming in Phase 4)"
+                    disabled
+                ></textarea>
+                <button id="send-btn" class="send-button" disabled>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M1 8L15 1L8 15L7 9L1 8Z"/>
+                    </svg>
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <!-- Status Bar -->
+    <footer id="statusbar">
+        <div class="statusbar-left">
+            <span id="shell-info">PowerShell</span>
+        </div>
+        <div class="statusbar-right">
+            <span id="terminal-size">80×24</span>
+        </div>
+    </footer>
+
+    <!-- Quick Connect Dialog -->
+    <div id="quick-connect-dialog" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">Quick Connect</h2>
+                <button class="modal-close" id="quick-connect-close">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="quick-connect-form">
+                    <div class="form-group">
+                        <label for="qc-host">Host</label>
+                        <input type="text" id="qc-host" name="host" 
+                               placeholder="192.168.1.100" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="qc-port">Port</label>
+                        <input type="number" id="qc-port" name="port" 
+                               value="22" min="1" max="65535" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="qc-username">Username</label>
+                        <input type="text" id="qc-username" name="username" 
+                               placeholder="pi" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="qc-password">Password</label>
+                        <input type="password" id="qc-password" name="password" 
+                               placeholder="Enter password" required>
+                    </div>
+                    <div id="qc-error" class="form-status error hidden">
+                        <span class="status-message"></span>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" id="qc-cancel">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="qc-submit" form="quick-connect-form">
+                    Connect
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Password Prompt Dialog -->
+    <div id="password-prompt-dialog" class="modal-overlay hidden">
+        <div class="modal modal-small">
+            <div class="modal-header">
+                <h2 class="modal-title">Enter Password</h2>
+                <button class="modal-close" id="password-prompt-close">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="password-prompt-form">
+                    <p id="password-prompt-message" class="form-hint" style="margin-bottom: 12px;">
+                        Enter password for server
+                    </p>
+                    <div class="form-group">
+                        <label for="prompt-password">Password</label>
+                        <input type="password" id="prompt-password" name="password" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="prompt-save-password">
+                            <span>Save password for future connections</span>
+                        </label>
+                    </div>
+                    <div id="password-prompt-error" class="form-status error hidden">
+                        <span class="status-message"></span>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" id="password-prompt-cancel">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="password-prompt-submit" 
+                        form="password-prompt-form">
+                    Connect
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="renderer.bundle.js"></script>
+</body>
+</html>

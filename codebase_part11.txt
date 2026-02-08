@@ -1,0 +1,640 @@
+﻿  margin-bottom: 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.form-group input[type="text"],
+.form-group input[type="password"],
+.form-group input[type="number"] {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color var(--transition-fast);
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.form-group input::placeholder {
+  color: var(--text-disabled);
+}
+
+.form-row {
+  display: flex;
+  gap: 10px;
+}
+
+.form-row .flex-grow {
+  flex: 1;
+}
+
+.form-row .port-field {
+  width: 80px;
+}
+
+.form-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* Password Input */
+.password-input-wrapper {
+  position: relative;
+}
+
+.password-input-wrapper input {
+  padding-right: 36px;
+}
+
+.toggle-password {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px;
+  font-size: 12px;
+  opacity: 0.6;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.toggle-password:hover {
+  opacity: 1;
+}
+
+/* Checkbox */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.checkbox-label input {
+  accent-color: var(--accent-primary);
+}
+
+/* Form Status */
+.form-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-top: 12px;
+}
+
+.form-status.hidden {
+  display: none;
+}
+
+.form-status.error {
+  background: rgba(241, 76, 76, 0.1);
+  border: 1px solid var(--accent-error);
+  color: var(--accent-error);
+}
+
+.form-status.success {
+  background: rgba(13, 188, 121, 0.1);
+  border: 1px solid var(--accent-success);
+  color: var(--accent-success);
+}
+
+/* ==================== BUTTONS ==================== */
+
+.btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  transition: all var(--transition-fast);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-secondary);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-danger {
+  background: var(--accent-error);
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #ff6b6b;
+}
+
+/* ==================== HIDDEN ELEMENTS ==================== */
+
+.hidden {
+  display: none !important;
+}
+
+.disconnect-section.hidden {
+  display: none;
+}
+
+9. Update Renderer (src/renderer/renderer.ts)
+
+Replace SSH initialization with full server management:
+
+typescript
+
+/**
+ * Add imports at the top
+ */
+import { ServerDropdown } from './components/server-dropdown';
+import { ServerModal } from './components/server-modal';
+import { ServerListItem, ServerFormData } from '../shared/types';
+
+/**
+ * Add variables after existing ones
+ */
+let serverDropdown: ServerDropdown | null = null;
+let serverModal: ServerModal | null = null;
+let connectedServerId: string | null = null;
+
+/**
+ * Replace the old initializeSSH() function with this
+ */
+function initializeServerManagement(): void {
+  const dropdownContainer = document.getElementById('server-dropdown-container');
+  
+  if (!dropdownContainer) {
+    console.error('Server dropdown container not found');
+    return;
+  }
+
+  // Initialize server modal
+  serverModal = new ServerModal({
+    onSave: async (data: ServerFormData, id?: string) => {
+      if (id) {
+        await window.electronAPI.updateServer(id, data);
+      } else {
+        await window.electronAPI.createServer(data);
+      }
+      serverDropdown?.refreshServers();
+    },
+    onClose: () => {
+      terminalManager?.focus();
+    }
+  });
+
+  // Initialize server dropdown
+  serverDropdown = new ServerDropdown({
+    container: dropdownContainer,
+    onSelectServer: handleServerSelect,
+    onQuickConnect: showQuickConnectDialog,
+    onAddServer: () => serverModal?.showAdd(),
+    onEditServer: (id) => serverModal?.showEdit(id),
+    onDeleteServer: handleDeleteServer,
+    onDisconnect: handleDisconnect,
+    onLocalTerminal: handleDisconnect
+  });
+
+  serverDropdown.initialize();
+
+  // Initialize quick connect dialog
+  initializeQuickConnectDialog();
+
+  // Initialize password prompt dialog
+  initializePasswordPromptDialog();
+
+  // Listen for SSH status changes
+  window.electronAPI.onSSHStatus((data) => {
+    if (data.status === 'disconnected' || data.status === 'error') {
+      connectedServerId = null;
+      serverDropdown?.updateStatus('disconnected');
+    }
+  });
+
+  console.log('Server management initialized');
+}
+
+/**
+ * Handle server selection from dropdown
+ */
+async function handleServerSelect(serverId: string): Promise<void> {
+  // Check if server has stored password
+  const hasPassword = await window.electronAPI.serverHasPassword(serverId);
+  
+  if (hasPassword) {
+    // Connect directly
+    await connectToServer(serverId);
+  } else {
+    // Show password prompt
+    showPasswordPrompt(serverId);
+  }
+}
+
+/**
+ * Connect to a server
+ */
+async function connectToServer(serverId: string, password?: string): Promise<void> {
+  serverDropdown?.updateStatus('connecting');
+
+  try {
+    const result = await window.electronAPI.connectToServer(serverId, password);
+    
+    if (result.success) {
+      connectedServerId = serverId;
+      const servers = await window.electronAPI.getServers();
+      const server = servers.find(s => s.id === serverId);
+      serverDropdown?.updateStatus('connected', server || null);
+      terminalManager?.focus();
+    } else {
+      serverDropdown?.updateStatus('error');
+      alert(`Connection failed: ${result.error}`);
+      serverDropdown?.updateStatus('disconnected');
+    }
+  } catch (error: any) {
+    serverDropdown?.updateStatus('error');
+    alert(`Connection failed: ${error.message}`);
+    serverDropdown?.updateStatus('disconnected');
+  }
+}
+
+/**
+ * Handle disconnect
+ */
+async function handleDisconnect(): Promise<void> {
+  try {
+    await window.electronAPI.sshDisconnect();
+    connectedServerId = null;
+    serverDropdown?.updateStatus('disconnected');
+    terminalManager?.focus();
+  } catch (error) {
+    console.error('Disconnect error:', error);
+  }
+}
+
+/**
+ * Handle server deletion
+ */
+async function handleDeleteServer(serverId: string): Promise<void> {
+  try {
+    // Disconnect if connected to this server
+    if (connectedServerId === serverId) {
+      await handleDisconnect();
+
+===== PHASE2_BUILDPLAN.MD =====
+
+The user wants a simpler minimal version to test SSH connection first before building the full Phase 2. This is a smart approach - get the core SSH functionality working before adding all the UI complexity.
+
+Let me create a minimal implementation that:
+
+    Adds ssh2 dependency
+    Creates a basic SSH manager
+    Adds a simple way to test connection (maybe a hardcoded test or simple prompt)
+    Connects the SSH output to the existing terminal
+
+This should be quick to implement and will validate that:
+
+    ssh2 works with Electron
+    We can establish SSH connections
+    We can pipe data between SSH and xterm.js
+    The authentication works
+
+I'll keep it simple:
+
+    Hardcoded test credentials (user can edit)
+    Simple IPC to trigger connection
+    Minimal UI (maybe just a button or keyboard shortcut)
+    Use existing terminal for output
+
+Minimal SSH Connection Test
+
+Let's build a bare-bones SSH test to verify everything works before adding the full UI.
+What We're Building
+
+A minimal test that:
+
+    Adds one button: "Connect to Pi"
+    Prompts for host/username/password
+    Establishes SSH connection
+    Pipes SSH data to existing terminal
+    Adds "Disconnect" to return to local shell
+
+Step 1: Install SSH Dependency
+
+powershell
+
+cd C:\Users\mike_\OneDrive\Documents\AI_pi_helper
+npm install ssh2
+npm install --save-dev @types/ssh2
+
+Step 2: Create SSH Manager
+
+Create new file: src/main/ssh-manager.ts
+
+typescript
+
+/**
+ * SSH Manager - Minimal Version for Testing
+ * Handles SSH connections using ssh2 library
+ */
+
+import { Client, ClientChannel } from 'ssh2';
+
+export type SSHStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+export interface SSHConfig {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+}
+
+export interface SSHManagerOptions {
+  onData: (data: string) => void;
+  onStatus: (status: SSHStatus, message?: string) => void;
+}
+
+export class SSHManager {
+  private client: Client | null = null;
+  private stream: ClientChannel | null = null;
+  private status: SSHStatus = 'disconnected';
+  private options: SSHManagerOptions;
+  private currentConfig: SSHConfig | null = null;
+
+  constructor(options: SSHManagerOptions) {
+    this.options = options;
+  }
+
+  /**
+   * Connect to SSH server
+   */
+  async connect(config: SSHConfig): Promise<boolean> {
+    // Disconnect existing connection first
+    if (this.client) {
+      this.disconnect();
+    }
+
+    this.currentConfig = config;
+    this.setStatus('connecting');
+
+    return new Promise((resolve) => {
+      this.client = new Client();
+
+      // Connection ready - open shell
+      this.client.on('ready', () => {
+        console.log('SSH connection ready');
+        this.openShell(resolve);
+      });
+
+      // Connection error
+      this.client.on('error', (err) => {
+        console.error('SSH connection error:', err.message);
+        this.setStatus('error', err.message);
+        this.cleanup();
+        resolve(false);
+      });
+
+      // Connection closed
+      this.client.on('close', () => {
+        console.log('SSH connection closed');
+        if (this.status === 'connected') {
+          this.setStatus('disconnected');
+        }
+        this.cleanup();
+      });
+
+      // Connection timeout
+      this.client.on('timeout', () => {
+        console.error('SSH connection timeout');
+        this.setStatus('error', 'Connection timeout');
+        this.cleanup();
+        resolve(false);
+      });
+
+      // Attempt connection
+      console.log(`Connecting to ${config.username}@${config.host}:${config.port}...`);
+      
+      try {
+        this.client.connect({
+          host: config.host,
+          port: config.port,
+          username: config.username,
+          password: config.password,
+          readyTimeout: 10000,
+          keepaliveInterval: 30000,
+          keepaliveCountMax: 3,
+        });
+      } catch (err: any) {
+        console.error('SSH connect error:', err.message);
+        this.setStatus('error', err.message);
+        resolve(false);
+      }
+    });
+  }
+
+  /**
+   * Open interactive shell session
+   */
+  private openShell(resolve: (success: boolean) => void): void {
+    if (!this.client) {
+      resolve(false);
+      return;
+    }
+
+    this.client.shell(
+      {
+        term: 'xterm-256color',
+        cols: 80,
+        rows: 24,
+      },
+      (err, stream) => {
+        if (err) {
+          console.error('Failed to open shell:', err.message);
+          this.setStatus('error', `Failed to open shell: ${err.message}`);
+          this.cleanup();
+          resolve(false);
+          return;
+        }
+
+        this.stream = stream;
+
+        // Handle data from remote server
+        stream.on('data', (data: Buffer) => {
+          this.options.onData(data.toString('utf8'));
+        });
+
+        // Handle stderr
+        stream.stderr.on('data', (data: Buffer) => {
+          this.options.onData(data.toString('utf8'));
+        });
+
+        // Handle stream close
+        stream.on('close', () => {
+          console.log('SSH shell stream closed');
+          this.disconnect();
+        });
+
+        // Handle stream error
+        stream.on('error', (err: Error) => {
+          console.error('SSH stream error:', err.message);
+          this.setStatus('error', err.message);
+        });
+
+        this.setStatus('connected');
+        console.log('SSH shell opened successfully');
+        resolve(true);
+      }
+    );
+  }
+
+  /**
+   * Write data to SSH session
+   */
+  write(data: string): void {
+    if (this.stream && this.status === 'connected') {
+      this.stream.write(data);
+    }
+  }
+
+  /**
+   * Resize remote PTY
+   */
+  resize(cols: number, rows: number): void {
+    if (this.stream && this.status === 'connected') {
+      try {
+        this.stream.setWindow(rows, cols, 0, 0);
+        console.log(`SSH PTY resized to ${cols}x${rows}`);
+      } catch (err) {
+        console.error('Failed to resize SSH PTY:', err);
+      }
+    }
+  }
+
+  /**
+   * Disconnect from server
+   */
+  disconnect(): void {
+    console.log('Disconnecting SSH...');
+    this.cleanup();
+    this.setStatus('disconnected');
+  }
+
+  /**
+   * Cleanup resources
+   */
+  private cleanup(): void {
+    if (this.stream) {
+      try {
+        this.stream.close();
+      } catch (e) {
+        // Ignore close errors
+      }
+      this.stream = null;
+    }
+
+    if (this.client) {
+      try {
+        this.client.end();
+      } catch (e) {
+        // Ignore end errors
+      }
+      this.client = null;
+    }
+
+    this.currentConfig = null;
+  }
+
+  /**
+   * Update and broadcast status
+   */
+  private setStatus(status: SSHStatus, message?: string): void {
+    this.status = status;
+    this.options.onStatus(status, message);
+  }
+
+  /**
+   * Get current status
+   */
+  getStatus(): SSHStatus {
+    return this.status;
+  }
+
+  /**
+   * Check if connected
+   */
+  isConnected(): boolean {
+    return this.status === 'connected';
+  }
+
+  /**
+   * Get current connection info
+   */
+  getConnectionInfo(): { host: string; username: string } | null {
+    if (this.currentConfig && this.status === 'connected') {
+      return {
+        host: this.currentConfig.host,
+        username: this.currentConfig.username,
+      };
+    }
+    return null;
+  }
+}
+
+Step 3: Update Main Process
+
+Update src/main/main.ts - add these changes:
+
+typescript
+
+/**
+ * Add these imports at the top
+ */
+import { SSHManager, SSHConfig, SSHStatus } from './ssh-manager';
+
+/**
+

@@ -1,0 +1,4974 @@
+﻿
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\main\store\credential-store.ts =====
+
+/**
+ * Credential Store
+ * Securely stores passwords using Electron's safeStorage API
+ * 
+ * On Windows: Uses Windows Credential Manager
+ * On macOS: Uses Keychain
+ * On Linux: Uses libsecret
+ */
+
+import { safeStorage } from 'electron';
+import Store from 'electron-store';
+
+interface CredentialData {
+  [serverId: string]: string;  // Base64 encoded encrypted password
+}
+
+export class CredentialStore {
+  private store: Store<{ credentials: CredentialData }>;
+
+  constructor() {
+    this.store = new Store<{ credentials: CredentialData }>({
+      name: 'credentials',
+      encryptionKey: 'pi-assistant-credentials', // Additional layer
+      defaults: {
+        credentials: {}
+      }
+    });
+  }
+
+  /**
+   * Check if encryption is available on this system
+   */
+  isAvailable(): boolean {
+    return safeStorage.isEncryptionAvailable();
+  }
+
+  /**
+   * Store a password securely
+   */
+  setPassword(serverId: string, password: string): boolean {
+    if (!this.isAvailable()) {
+      console.warn('Secure storage not available - password will not be saved');
+      return false;
+    }
+
+    try {
+      // Encrypt the password
+      const encrypted = safeStorage.encryptString(password);
+      const base64 = encrypted.toString('base64');
+
+      // Store in electron-store
+      const credentials = this.store.get('credentials', {});
+      credentials[serverId] = base64;
+      this.store.set('credentials', credentials);
+
+      console.log(`Password stored for server: ${serverId}`);
+      return true;
+    } catch (error) {
+      console.error('Failed to store password:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Retrieve a stored password
+   */
+  getPassword(serverId: string): string | null {
+    if (!this.isAvailable()) {
+      return null;
+    }
+
+    try {
+      const credentials = this.store.get('credentials', {});
+      const base64 = credentials[serverId];
+
+      if (!base64) {
+        return null;
+      }
+
+      // Decrypt the password
+      const encrypted = Buffer.from(base64, 'base64');
+      const password = safeStorage.decryptString(encrypted);
+
+      return password;
+    } catch (error) {
+      console.error('Failed to retrieve password:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Check if a password exists for a server
+   */
+  hasPassword(serverId: string): boolean {
+    const credentials = this.store.get('credentials', {});
+    return serverId in credentials;
+  }
+
+  /**
+   * Delete a stored password
+   */
+  deletePassword(serverId: string): boolean {
+    try {
+      const credentials = this.store.get('credentials', {});
+      
+      if (serverId in credentials) {
+        delete credentials[serverId];
+        this.store.set('credentials', credentials);
+        console.log(`Password deleted for server: ${serverId}`);
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Failed to delete password:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Clear all stored passwords
+   */
+  clearAll(): void {
+    this.store.set('credentials', {});
+    console.log('All passwords cleared');
+  }
+}
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\main\store\server-store.ts =====
+
+/**
+ * Server Store
+ * Manages server profiles using electron-store
+ * Does NOT store passwords - those go in CredentialStore
+ */
+
+import Store from 'electron-store';
+import { v4 as uuidv4 } from 'uuid';
+import { 
+  ServerProfile, 
+  ServerFormData, 
+  ServerListItem 
+} from '../../shared/types';
+import { CredentialStore } from './credential-store';
+
+interface ServerStoreData {
+  servers: ServerProfile[];
+}
+
+export class ServerStore {
+  private store: Store<ServerStoreData>;
+  private credentialStore: CredentialStore;
+
+  constructor(credentialStore: CredentialStore) {
+    this.credentialStore = credentialStore;
+    this.store = new Store<ServerStoreData>({
+      name: 'servers',
+      defaults: {
+        servers: []
+      }
+    });
+  }
+
+  /**
+   * Get all servers as list items (for dropdown display)
+   */
+  getAll(): ServerListItem[] {
+    const servers = this.store.get('servers', []);
+    
+    return servers.map(server => ({
+      id: server.id,
+      name: server.name,
+      description: server.description,
+      host: server.host,
+      username: server.username,
+      lastConnected: server.lastConnected,
+      hasStoredPassword: this.credentialStore.hasPassword(server.id)
+    }));
+  }
+
+  /**
+   * Get a single server by ID
+   */
+  get(id: string): ServerProfile | null {
+    const servers = this.store.get('servers', []);
+    return servers.find(s => s.id === id) || null;
+  }
+
+  /**
+   * Create a new server profile
+   */
+  create(data: ServerFormData): ServerProfile {
+    const now = Date.now();
+    
+    const server: ServerProfile = {
+      id: uuidv4(),
+      name: data.name.trim(),
+      description: data.description?.trim() || '',
+      host: data.host.trim(),
+      port: data.port || 22,
+      username: data.username.trim(),
+      authMethod: data.authMethod || 'password',
+      privateKeyPath: data.privateKeyPath,
+      saveCredentials: data.saveCredentials,
+      lastConnected: null,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    // Save password if provided and user wants to save it
+    if (data.password && data.saveCredentials) {
+      this.credentialStore.setPassword(server.id, data.password);
+    }
+
+    // Add to store
+    const servers = this.store.get('servers', []);
+    servers.push(server);
+    this.store.set('servers', servers);
+
+    console.log(`Server created: ${server.name} (${server.id})`);
+    return server;
+  }
+
+  /**
+   * Update an existing server profile
+   */
+  update(id: string, data: Partial<ServerFormData>): ServerProfile | null {
+    const servers = this.store.get('servers', []);
+    const index = servers.findIndex(s => s.id === id);
+
+    if (index === -1) {
+      return null;
+    }
+
+    // Update fields
+    const server = servers[index];
+    
+    if (data.name !== undefined) server.name = data.name.trim();
+    if (data.description !== undefined) server.description = data.description.trim();
+    if (data.host !== undefined) server.host = data.host.trim();
+    if (data.port !== undefined) server.port = data.port;
+    if (data.username !== undefined) server.username = data.username.trim();
+    if (data.authMethod !== undefined) server.authMethod = data.authMethod;
+    if (data.privateKeyPath !== undefined) server.privateKeyPath = data.privateKeyPath;
+    if (data.saveCredentials !== undefined) server.saveCredentials = data.saveCredentials;
+    
+    server.updatedAt = Date.now();
+
+    // Update password if provided
+    if (data.password) {
+      if (data.saveCredentials) {
+        this.credentialStore.setPassword(id, data.password);
+      } else {
+        // User unchecked "save password" - delete stored password
+        this.credentialStore.deletePassword(id);
+      }
+    } else if (data.saveCredentials === false) {
+      // User unchecked "save password" without providing new password
+      this.credentialStore.deletePassword(id);
+    }
+
+    // Save to store
+    servers[index] = server;
+    this.store.set('servers', servers);
+
+    console.log(`Server updated: ${server.name} (${server.id})`);
+    return server;
+  }
+
+  /**
+   * Delete a server profile
+   */
+  delete(id: string): boolean {
+    const servers = this.store.get('servers', []);
+    const index = servers.findIndex(s => s.id === id);
+
+    if (index === -1) {
+      return false;
+    }
+
+    const server = servers[index];
+
+    // Delete stored password
+    this.credentialStore.deletePassword(id);
+
+    // Remove from store
+    servers.splice(index, 1);
+    this.store.set('servers', servers);
+
+    console.log(`Server deleted: ${server.name} (${id})`);
+    return true;
+  }
+
+  /**
+   * Update last connected timestamp
+   */
+  updateLastConnected(id: string): void {
+    const servers = this.store.get('servers', []);
+    const index = servers.findIndex(s => s.id === id);
+
+    if (index !== -1) {
+      servers[index].lastConnected = Date.now();
+      this.store.set('servers', servers);
+    }
+  }
+
+  /**
+   * Get password for a server (from credential store)
+   */
+  getPassword(id: string): string | null {
+    return this.credentialStore.getPassword(id);
+  }
+
+  /**
+   * Check if server has stored password
+   */
+  hasPassword(id: string): boolean {
+    return this.credentialStore.hasPassword(id);
+  }
+}
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\main\main.d.ts =====
+
+/**
+ * Shared TypeScript interfaces and types
+ * Used by both main and renderer processes
+ */
+export interface TerminalDimensions {
+    cols: number;
+    rows: number;
+}
+export interface WindowState {
+    width: number;
+    height: number;
+    x?: number;
+    y?: number;
+    isMaximized: boolean;
+}
+export interface LayoutConfig {
+    terminalPanelWidth: number;
+}
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export declare const IPC_CHANNELS: {
+    readonly TERMINAL_DATA: "terminal:data";
+    readonly TERMINAL_INPUT: "terminal:input";
+    readonly TERMINAL_RESIZE: "terminal:resize";
+    readonly TERMINAL_READY: "terminal:ready";
+    readonly WINDOW_MINIMIZE: "window:minimize";
+    readonly WINDOW_MAXIMIZE: "window:maximize";
+    readonly WINDOW_CLOSE: "window:close";
+    readonly WINDOW_IS_MAXIMIZED: "window:is-maximized";
+};
+export interface ElectronAPI {
+    sendTerminalInput: (data: string) => void;
+    onTerminalData: (callback: (data: string) => void) => void;
+    resizeTerminal: (cols: number, rows: number) => void;
+    minimizeWindow: () => void;
+    maximizeWindow: () => void;
+    closeWindow: () => void;
+    isMaximized: () => Promise<boolean>;
+    getPlatform: () => NodeJS.Platform;
+    removeAllListeners: (channel: string) => void;
+}
+declare global {
+    interface Window {
+        electronAPI: ElectronAPI;
+    }
+}
+//# sourceMappingURL=main.d.ts.map
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\main\main.ts =====
+
+/**
+ * Main Process
+ * Electron application entry point
+ */
+
+import { app, BrowserWindow, ipcMain } from 'electron';
+import * as path from 'path';
+import { PtyManager } from './pty';
+import { IPC_CHANNELS, ServerFormData, SSHConnectionResult } from '../shared/types';
+import { SSHManager, SSHConfig, SSHStatus } from './ssh-manager';
+import { CredentialStore } from './store/credential-store';
+import { ServerStore } from './store/server-store';
+
+let mainWindow: BrowserWindow | null = null;
+let ptyManager: PtyManager | null = null;
+let sshManager: SSHManager | null = null;
+let isSSHActive = false;
+let credentialStore: CredentialStore;
+let serverStore: ServerStore;
+
+/**
+ * Create the main application window
+ */
+function createWindow(): void {
+  mainWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 800,
+    minHeight: 600,
+    frame: false,
+    backgroundColor: '#1e1e1e',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false
+    }
+  });
+
+  // Load the renderer HTML from dist directory
+  mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+
+  // Open DevTools in development
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools();
+  }
+
+  // Initialize PTY manager
+  ptyManager = new PtyManager(mainWindow);
+
+  // Initialize SSH manager
+  initializeSSHManager();
+
+  // Handle window close
+  mainWindow.on('closed', () => {
+    if (ptyManager) {
+      ptyManager.dispose();
+      ptyManager = null;
+    }
+    if (sshManager) {
+      sshManager.disconnect();
+      sshManager = null;
+    }
+    mainWindow = null;
+  });
+}
+
+/**
+ * Initialize SSH Manager
+ */
+function initializeSSHManager(): void {
+  sshManager = new SSHManager({
+    onData: (data: string) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_DATA, data);
+      }
+    },
+    onStatus: (status: SSHStatus, message?: string) => {
+      console.log(`SSH Status: ${status}${message ? ` - ${message}` : ''}`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ssh:status', { status, message });
+      }
+      
+      // If disconnected or error, flag SSH as inactive
+      if (status === 'disconnected' || status === 'error') {
+        isSSHActive = false;
+      } else if (status === 'connected') {
+        isSSHActive = true;
+      }
+    }
+  });
+}
+
+/**
+ * Initialize stores
+ */
+function initializeStores(): void {
+  credentialStore = new CredentialStore();
+  serverStore = new ServerStore(credentialStore);
+  console.log('Stores initialized');
+  console.log(`Secure storage available: ${credentialStore.isAvailable()}`);
+}
+
+/**
+ * Set up IPC handlers
+ */
+function setupIpcHandlers(): void {
+  // Window controls
+  ipcMain.on(IPC_CHANNELS.WINDOW_MINIMIZE, () => {
+    if (mainWindow) {
+      mainWindow.minimize();
+    }
+  });
+
+  ipcMain.on(IPC_CHANNELS.WINDOW_MAXIMIZE, () => {
+    if (mainWindow) {
+      if (mainWindow.isMaximized()) {
+        mainWindow.unmaximize();
+      } else {
+        mainWindow.maximize();
+      }
+    }
+  });
+
+  ipcMain.on(IPC_CHANNELS.WINDOW_CLOSE, () => {
+    if (mainWindow) {
+      mainWindow.close();
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WINDOW_IS_MAXIMIZED, () => {
+    return mainWindow ? mainWindow.isMaximized() : false;
+  });
+
+  // Terminal controls
+  ipcMain.on(IPC_CHANNELS.TERMINAL_INPUT, (_event, data: string) => {
+    // Route to SSH if connected, otherwise to local PTY
+    if (isSSHActive && sshManager?.isConnected()) {
+      sshManager.write(data);
+    } else if (ptyManager) {
+      ptyManager.write(data);
+    }
+  });
+
+  ipcMain.on(IPC_CHANNELS.TERMINAL_RESIZE, (_event, cols: number, rows: number) => {
+    // Resize both SSH and local PTY
+    if (sshManager?.isConnected()) {
+      sshManager.resize(cols, rows);
+    }
+    if (ptyManager) {
+      ptyManager.resize(cols, rows);
+    }
+  });
+
+  // SSH handlers
+  ipcMain.handle('ssh:connect', async (_event, config: SSHConfig) => {
+    if (!sshManager) {
+      initializeSSHManager();
+    }
+
+    try {
+      // Clear the terminal before connecting
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_DATA, '\x1b[2J\x1b[H');
+        mainWindow.webContents.send(
+          IPC_CHANNELS.TERMINAL_DATA,
+          `\x1b[33mConnecting to ${config.username}@${config.host}:${config.port}...\x1b[0m\r\n`
+        );
+      }
+
+      const success = await sshManager!.connect(config);
+      
+      if (success) {
+        isSSHActive = true;
+        return { success: true };
+      } else {
+        return { success: false, error: 'Connection failed' };
+      }
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('ssh:disconnect', async () => {
+    if (sshManager) {
+      sshManager.disconnect();
+    }
+    isSSHActive = false;
+
+    // Clear terminal and show message
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_DATA, '\x1b[2J\x1b[H');
+      mainWindow.webContents.send(
+        IPC_CHANNELS.TERMINAL_DATA,
+        '\x1b[33mDisconnected from SSH. Returning to local terminal...\x1b[0m\r\n\r\n'
+      );
+    }
+
+    // Reinitialize local PTY
+    if (ptyManager) {
+      ptyManager.dispose();
+    }
+    if (mainWindow) {
+      ptyManager = new PtyManager(mainWindow);
+    }
+
+    return { success: true };
+  });
+
+  ipcMain.handle('ssh:status', () => {
+    return {
+      isConnected: sshManager?.isConnected() || false,
+      status: sshManager?.getStatus() || 'disconnected',
+      connectionInfo: sshManager?.getConnectionInfo()
+    };
+  });
+
+  // ============== SERVER MANAGEMENT HANDLERS ==============
+
+  // Get all servers
+  ipcMain.handle(IPC_CHANNELS.SERVER_LIST, () => {
+    return serverStore.getAll();
+  });
+
+  // Get single server
+  ipcMain.handle(IPC_CHANNELS.SERVER_GET, (_, id: string) => {
+    return serverStore.get(id);
+  });
+
+  // Create server
+  ipcMain.handle(IPC_CHANNELS.SERVER_CREATE, (_, data: ServerFormData) => {
+    return serverStore.create(data);
+  });
+
+  // Update server
+  ipcMain.handle(IPC_CHANNELS.SERVER_UPDATE, (_, id: string, data: Partial<ServerFormData>) => {
+    return serverStore.update(id, data);
+  });
+
+  // Delete server
+  ipcMain.handle(IPC_CHANNELS.SERVER_DELETE, (_, id: string) => {
+    return serverStore.delete(id);
+  });
+
+  // Check if server has stored password
+  ipcMain.handle(IPC_CHANNELS.SERVER_HAS_PASSWORD, (_, id: string) => {
+    return serverStore.hasPassword(id);
+  });
+
+  // Connect to saved server
+  ipcMain.handle(IPC_CHANNELS.SERVER_CONNECT, async (_, id: string, password?: string): Promise<SSHConnectionResult> => {
+    const server = serverStore.get(id);
+    
+    if (!server) {
+      return { success: false, error: 'Server not found' };
+    }
+
+    // Get password from credential store or use provided password
+    let pwd = password;
+    if (!pwd) {
+      pwd = serverStore.getPassword(id) || undefined;
+    }
+
+    if (!pwd) {
+      return { success: false, error: 'Password required' };
+    }
+
+    // Initialize SSH manager if needed
+    if (!sshManager) {
+      initializeSSHManager();
+    }
+
+    // Clear terminal and show connecting message
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_DATA, '\x1b[2J\x1b[H');
+      mainWindow.webContents.send(
+        IPC_CHANNELS.TERMINAL_DATA,
+        `\x1b[33mConnecting to ${server.name} (${server.username}@${server.host})...\x1b[0m\r\n`
+      );
+    }
+
+    try {
+      const success = await sshManager!.connect({
+        host: server.host,
+        port: server.port,
+        username: server.username,
+        password: pwd
+      });
+
+      if (success) {
+        isSSHActive = true;
+        serverStore.updateLastConnected(id);
+        return { success: true, serverId: id };
+      } else {
+        return { success: false, error: 'Connection failed' };
+      }
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Test connection (without saving)
+  ipcMain.handle(IPC_CHANNELS.SERVER_TEST_CONNECTION, async (_, config: SSHConfig): Promise<{ success: boolean; error?: string }> => {
+    // Create a temporary SSH manager for testing
+    let testSuccess = false;
+    let testError: string | undefined;
+
+    const testManager = new SSHManager({
+      onData: () => {},  // Ignore data during test
+      onStatus: (status: SSHStatus, message?: string) => {
+        if (status === 'error') {
+          testError = message || 'Connection failed';
+        }
+      }
+    });
+
+    try {
+      testSuccess = await testManager.connect(config);
+      
+      if (!testSuccess) {
+        testError = testError || 'Connection failed';
+      }
+
+      // Disconnect immediately after test
+      testManager.disconnect();
+
+      return { success: testSuccess, error: testError };
+    } catch (error: any) {
+      testManager.disconnect();
+      return { success: false, error: error.message };
+    }
+  });
+}
+
+/**
+ * Application initialization
+ */
+app.whenReady().then(() => {
+  initializeStores();
+  setupIpcHandlers();
+  createWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
+});
+
+/**
+ * Quit when all windows are closed (except on macOS)
+ */
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+/**
+ * Handle app quit
+ */
+app.on('before-quit', () => {
+  if (ptyManager) {
+    ptyManager.dispose();
+  }
+});
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\main\preload.d.ts =====
+
+/**
+ * Preload Script
+ * Securely exposes Electron APIs to the renderer process
+ */
+export {};
+//# sourceMappingURL=preload.d.ts.map
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\main\preload.ts =====
+
+/**
+ * Preload Script
+ * Securely exposes Electron APIs to the renderer process
+ */
+
+import { contextBridge, ipcRenderer } from 'electron';
+import { IPC_CHANNELS, ElectronAPI } from '../shared/types';
+
+// Store callbacks for cleanup
+const callbacks = new Map<string, Set<(...args: any[]) => void>>();
+
+/**
+ * Register a callback for an IPC channel
+ */
+function registerCallback(channel: string, callback: (...args: any[]) => void): void {
+  if (!callbacks.has(channel)) {
+    callbacks.set(channel, new Set());
+  }
+  callbacks.get(channel)!.add(callback);
+}
+
+/**
+ * Create the API object to expose to renderer
+ */
+const electronAPI: ElectronAPI = {
+  // Terminal operations
+  sendTerminalInput: (data: string) => {
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_INPUT, data);
+  },
+
+  onTerminalData: (callback: (data: string) => void) => {
+    const wrappedCallback = (_event: Electron.IpcRendererEvent, data: string) => {
+      callback(data);
+    };
+    registerCallback(IPC_CHANNELS.TERMINAL_DATA, wrappedCallback);
+    ipcRenderer.on(IPC_CHANNELS.TERMINAL_DATA, wrappedCallback);
+  },
+
+  resizeTerminal: (cols: number, rows: number) => {
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, cols, rows);
+  },
+
+  // Window controls
+  minimizeWindow: () => {
+    ipcRenderer.send(IPC_CHANNELS.WINDOW_MINIMIZE);
+  },
+
+  maximizeWindow: () => {
+    ipcRenderer.send(IPC_CHANNELS.WINDOW_MAXIMIZE);
+  },
+
+  closeWindow: () => {
+    ipcRenderer.send(IPC_CHANNELS.WINDOW_CLOSE);
+  },
+
+  isMaximized: async () => {
+    return await ipcRenderer.invoke(IPC_CHANNELS.WINDOW_IS_MAXIMIZED);
+  },
+
+  // SSH connection
+  sshConnect: (config: { host: string; port: number; username: string; password: string }) => {
+    return ipcRenderer.invoke('ssh:connect', config);
+  },
+
+  sshDisconnect: () => {
+    return ipcRenderer.invoke('ssh:disconnect');
+  },
+
+  sshGetStatus: () => {
+    return ipcRenderer.invoke('ssh:status');
+  },
+
+  onSSHStatus: (callback: (data: { status: string; message?: string }) => void) => {
+    const wrappedCallback = (_event: Electron.IpcRendererEvent, data: { status: string; message?: string }) => {
+      callback(data);
+    };
+    registerCallback('ssh:status', wrappedCallback);
+    ipcRenderer.on('ssh:status', wrappedCallback);
+  },
+
+  // Server management
+  getServers: () => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SERVER_LIST);
+  },
+
+  getServer: (id: string) => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET, id);
+  },
+
+  createServer: (data) => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SERVER_CREATE, data);
+  },
+
+  updateServer: (id: string, data) => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SERVER_UPDATE, id, data);
+  },
+
+  deleteServer: (id: string) => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SERVER_DELETE, id);
+  },
+
+  connectToServer: (id: string, password?: string) => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SERVER_CONNECT, id, password);
+  },
+
+  serverHasPassword: (id: string) => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SERVER_HAS_PASSWORD, id);
+  },
+
+  testConnection: (config) => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SERVER_TEST_CONNECTION, config);
+  },
+
+  // Utility
+  getPlatform: () => {
+    return process.platform;
+  },
+
+  // Cleanup
+  removeAllListeners: (channel: string) => {
+    const channelCallbacks = callbacks.get(channel);
+    if (channelCallbacks) {
+      channelCallbacks.forEach((callback) => {
+        ipcRenderer.removeListener(channel, callback as any);
+      });
+      callbacks.delete(channel);
+    }
+  }
+};
+
+// Expose the API to renderer
+contextBridge.exposeInMainWorld('electronAPI', electronAPI);
+
+console.log('Preload script loaded successfully');
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\main\pty.d.ts =====
+
+/**
+ * Preload Script
+ * Securely exposes Electron APIs to the renderer process
+ */
+export {};
+//# sourceMappingURL=pty.d.ts.map
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\main\pty.ts =====
+
+/**
+ * PTY Manager
+ * Manages the pseudo-terminal process for local shell
+ */
+
+import * as pty from 'node-pty';
+import { BrowserWindow } from 'electron';
+import { IPC_CHANNELS } from '../shared/types';
+import * as os from 'os';
+
+export class PtyManager {
+  private ptyProcess: pty.IPty | null = null;
+  private window: BrowserWindow;
+
+  constructor(window: BrowserWindow) {
+    this.window = window;
+    this.initialize();
+  }
+
+  /**
+   * Initialize the PTY process
+   */
+  private initialize(): void {
+    // Detect the shell based on the platform
+    const shell = this.getDefaultShell();
+    const initialCols = 80;
+    const initialRows = 24;
+
+    try {
+      // Spawn the PTY process
+      this.ptyProcess = pty.spawn(shell, [], {
+        name: 'xterm-256color',
+        cols: initialCols,
+        rows: initialRows,
+        cwd: os.homedir(),
+        env: process.env as { [key: string]: string }
+      });
+
+      // Listen for data from the PTY
+      this.ptyProcess.onData((data: string) => {
+        this.window.webContents.send(IPC_CHANNELS.TERMINAL_DATA, data);
+      });
+
+      // Listen for PTY exit
+      this.ptyProcess.onExit(({ exitCode, signal }) => {
+        console.log(`PTY process exited with code ${exitCode} and signal ${signal}`);
+        this.ptyProcess = null;
+      });
+
+      console.log(`PTY spawned with PID: ${this.ptyProcess.pid}`);
+    } catch (error) {
+      console.error('Failed to spawn PTY:', error);
+    }
+  }
+
+  /**
+   * Get the default shell for the current platform
+   */
+  private getDefaultShell(): string {
+    if (process.platform === 'win32') {
+      return 'powershell.exe';
+    } else {
+      return process.env.SHELL || '/bin/bash';
+    }
+  }
+
+  /**
+   * Write data to the PTY process
+   */
+  write(data: string): void {
+    if (this.ptyProcess) {
+      this.ptyProcess.write(data);
+    }
+  }
+
+  /**
+   * Resize the PTY process
+   */
+  resize(cols: number, rows: number): void {
+    if (this.ptyProcess) {
+      try {
+        this.ptyProcess.resize(cols, rows);
+      } catch (error) {
+        console.error('Failed to resize PTY:', error);
+      }
+    }
+  }
+
+  /**
+   * Clean up and dispose the PTY process
+   */
+  dispose(): void {
+    if (this.ptyProcess) {
+      try {
+        this.ptyProcess.kill();
+      } catch (error) {
+        console.error('Failed to kill PTY process:', error);
+      }
+      this.ptyProcess = null;
+    }
+  }
+}
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\main\ssh-manager.ts =====
+
+/**
+ * SSH Manager - Minimal Version for Testing
+ * Handles SSH connections using ssh2 library
+ */
+
+import { Client, ClientChannel } from 'ssh2';
+
+export type SSHStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+export interface SSHConfig {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+}
+
+export interface SSHManagerOptions {
+  onData: (data: string) => void;
+  onStatus: (status: SSHStatus, message?: string) => void;
+}
+
+export class SSHManager {
+  private client: Client | null = null;
+  private stream: ClientChannel | null = null;
+  private status: SSHStatus = 'disconnected';
+  private options: SSHManagerOptions;
+  private currentConfig: SSHConfig | null = null;
+
+  constructor(options: SSHManagerOptions) {
+    this.options = options;
+  }
+
+  /**
+   * Connect to SSH server
+   */
+  async connect(config: SSHConfig): Promise<boolean> {
+    // Disconnect existing connection first
+    if (this.client) {
+      this.disconnect();
+    }
+
+    this.currentConfig = config;
+    this.setStatus('connecting');
+
+    return new Promise((resolve) => {
+      this.client = new Client();
+
+      // Connection ready - open shell
+      this.client.on('ready', () => {
+        console.log('SSH connection ready');
+        this.openShell(resolve);
+      });
+
+      // Connection error
+      this.client.on('error', (err) => {
+        console.error('SSH connection error:', err.message);
+        this.setStatus('error', err.message);
+        this.cleanup();
+        resolve(false);
+      });
+
+      // Connection closed
+      this.client.on('close', () => {
+        console.log('SSH connection closed');
+        if (this.status === 'connected') {
+          this.setStatus('disconnected');
+        }
+        this.cleanup();
+      });
+
+      // Connection timeout
+      this.client.on('timeout', () => {
+        console.error('SSH connection timeout');
+        this.setStatus('error', 'Connection timeout');
+        this.cleanup();
+        resolve(false);
+      });
+
+      // Attempt connection
+      console.log(`Connecting to ${config.username}@${config.host}:${config.port}...`);
+      
+      try {
+        this.client.connect({
+          host: config.host,
+          port: config.port,
+          username: config.username,
+          password: config.password,
+          readyTimeout: 10000,
+          keepaliveInterval: 30000,
+          keepaliveCountMax: 3,
+        });
+      } catch (err: any) {
+        console.error('SSH connect error:', err.message);
+        this.setStatus('error', err.message);
+        resolve(false);
+      }
+    });
+  }
+
+  /**
+   * Open interactive shell session
+   */
+  private openShell(resolve: (success: boolean) => void): void {
+    if (!this.client) {
+      resolve(false);
+      return;
+    }
+
+    this.client.shell(
+      {
+        term: 'xterm-256color',
+        cols: 80,
+        rows: 24,
+      },
+      (err, stream) => {
+        if (err) {
+          console.error('Failed to open shell:', err.message);
+          this.setStatus('error', `Failed to open shell: ${err.message}`);
+          this.cleanup();
+          resolve(false);
+          return;
+        }
+
+        this.stream = stream;
+
+        // Handle data from remote server
+        stream.on('data', (data: Buffer) => {
+          this.options.onData(data.toString('utf8'));
+        });
+
+        // Handle stderr
+        stream.stderr.on('data', (data: Buffer) => {
+          this.options.onData(data.toString('utf8'));
+        });
+
+        // Handle stream close
+        stream.on('close', () => {
+          console.log('SSH shell stream closed');
+          this.disconnect();
+        });
+
+        // Handle stream error
+        stream.on('error', (err: Error) => {
+          console.error('SSH stream error:', err.message);
+          this.setStatus('error', err.message);
+        });
+
+        this.setStatus('connected');
+        console.log('SSH shell opened successfully');
+        resolve(true);
+      }
+    );
+  }
+
+  /**
+   * Write data to SSH session
+   */
+  write(data: string): void {
+    if (this.stream && this.status === 'connected') {
+      this.stream.write(data);
+    }
+  }
+
+  /**
+   * Resize remote PTY
+   */
+  resize(cols: number, rows: number): void {
+    if (this.stream && this.status === 'connected') {
+      try {
+        this.stream.setWindow(rows, cols, 0, 0);
+        console.log(`SSH PTY resized to ${cols}x${rows}`);
+      } catch (err) {
+        console.error('Failed to resize SSH PTY:', err);
+      }
+    }
+  }
+
+  /**
+   * Disconnect from server
+   */
+  disconnect(): void {
+    console.log('Disconnecting SSH...');
+    this.cleanup();
+    this.setStatus('disconnected');
+  }
+
+  /**
+   * Cleanup resources
+   */
+  private cleanup(): void {
+    if (this.stream) {
+      try {
+        this.stream.close();
+      } catch (e) {
+        // Ignore close errors
+      }
+      this.stream = null;
+    }
+
+    if (this.client) {
+      try {
+        this.client.end();
+      } catch (e) {
+        // Ignore end errors
+      }
+      this.client = null;
+    }
+
+    this.currentConfig = null;
+  }
+
+  /**
+   * Update and broadcast status
+   */
+  private setStatus(status: SSHStatus, message?: string): void {
+    this.status = status;
+    this.options.onStatus(status, message);
+  }
+
+  /**
+   * Get current status
+   */
+  getStatus(): SSHStatus {
+    return this.status;
+  }
+
+  /**
+   * Check if connected
+   */
+  isConnected(): boolean {
+    return this.status === 'connected';
+  }
+
+  /**
+   * Get current connection info
+   */
+  getConnectionInfo(): { host: string; username: string } | null {
+    if (this.currentConfig && this.status === 'connected') {
+      return {
+        host: this.currentConfig.host,
+        username: this.currentConfig.username,
+      };
+    }
+    return null;
+  }
+}
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\components\server-dropdown.ts =====
+
+/**
+ * Server Dropdown Component
+ * Displays list of saved servers with quick actions
+ */
+
+import { ServerListItem } from '../../shared/types';
+
+type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+export interface ServerDropdownOptions {
+  container: HTMLElement;
+  onSelectServer: (serverId: string) => void;
+  onQuickConnect: () => void;
+  onAddServer: () => void;
+  onEditServer: (serverId: string) => void;
+  onDeleteServer: (serverId: string) => void;
+  onDisconnect: () => void;
+  onLocalTerminal: () => void;
+}
+
+export class ServerDropdown {
+  private container: HTMLElement;
+  private options: ServerDropdownOptions;
+  private button!: HTMLElement;
+  private menu!: HTMLElement;
+  private isOpen: boolean = false;
+  private servers: ServerListItem[] = [];
+  private status: ConnectionStatus = 'disconnected';
+  private connectedServer: ServerListItem | null = null;
+
+  constructor(options: ServerDropdownOptions) {
+    this.container = options.container;
+    this.options = options;
+  }
+
+  /**
+   * Initialize the dropdown
+   */
+  initialize(): void {
+    this.render();
+    this.attachEventListeners();
+    this.refreshServers();
+    console.log('Server dropdown initialized');
+  }
+
+  /**
+   * Render the dropdown HTML
+   */
+  private render(): void {
+    this.container.innerHTML = `
+      <div class="server-dropdown">
+        <button class="server-dropdown-button" id="server-dropdown-btn">
+          <span class="status-dot disconnected"></span>
+          <span class="dropdown-label">Local</span>
+          <span class="dropdown-arrow">â–¾</span>
+        </button>
+        <div class="server-dropdown-menu hidden" id="server-dropdown-menu">
+          <div class="menu-section">
+            <div class="menu-item" data-action="local">
+              <span class="status-dot local"></span>
+              <span class="menu-item-label">Local Terminal</span>
+            </div>
+          </div>
+          
+          <div class="menu-divider"></div>
+          
+          <div class="menu-section" id="servers-section">
+            <div class="menu-section-label">Saved Servers</div>
+            <div id="servers-list">
+              <div class="menu-empty">No saved servers</div>
+            </div>
+          </div>
+          
+          <div class="menu-divider"></div>
+          
+          <div class="menu-section">
+            <div class="menu-item" data-action="quick-connect">
+              <span class="menu-icon">âš¡</span>
+              <span class="menu-item-label">Quick Connect...</span>
+            </div>
+            <div class="menu-item" data-action="add-server">
+              <span class="menu-icon">+</span>
+              <span class="menu-item-label">Add Server...</span>
+            </div>
+          </div>
+          
+          <div class="menu-divider disconnect-section hidden"></div>
+          
+          <div class="menu-section disconnect-section hidden">
+            <div class="menu-item disconnect" data-action="disconnect">
+              <span class="menu-icon">â</span>
+              <span class="menu-item-label">Disconnect</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    this.button = this.container.querySelector('#server-dropdown-btn')!;
+    this.menu = this.container.querySelector('#server-dropdown-menu')!;
+  }
+
+  /**
+   * Attach event listeners
+   */
+  private attachEventListeners(): void {
+    // Toggle dropdown on button click
+    this.button.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggle();
+    });
+
+    // Handle menu item clicks
+    this.menu.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const menuItem = target.closest('.menu-item') as HTMLElement;
+      
+      if (!menuItem) return;
+
+      const action = menuItem.dataset.action;
+      const serverId = menuItem.dataset.serverId;
+
+      if (action === 'local') {
+        this.options.onLocalTerminal();
+        this.close();
+      } else if (action === 'quick-connect') {
+        this.options.onQuickConnect();
+        this.close();
+      } else if (action === 'add-server') {
+        this.options.onAddServer();
+        this.close();
+      } else if (action === 'disconnect') {
+        this.options.onDisconnect();
+        this.close();
+      } else if (serverId) {
+        // Check for edit/delete buttons
+        if (target.closest('.server-edit-btn')) {
+          this.options.onEditServer(serverId);
+          this.close();
+        } else if (target.closest('.server-delete-btn')) {
+          if (confirm('Delete this server?')) {
+            this.options.onDeleteServer(serverId);
+          }
+        } else {
+          // Connect to server
+          this.options.onSelectServer(serverId);
+          this.close();
+        }
+      }
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!this.container.contains(e.target as Node)) {
+        this.close();
+      }
+    });
+
+    // Close on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.isOpen) {
+        this.close();
+      }
+    });
+  }
+
+  /**
+   * Refresh server list from main process
+   */
+  async refreshServers(): Promise<void> {
+    try {
+      this.servers = await window.electronAPI.getServers();
+      this.renderServerList();
+    } catch (error) {
+      console.error('Failed to refresh servers:', error);
+    }
+  }
+
+  /**
+   * Render the server list in the menu
+   */
+  private renderServerList(): void {
+    const listContainer = this.menu.querySelector('#servers-list')!;
+
+    if (this.servers.length === 0) {
+      listContainer.innerHTML = '<div class="menu-empty">No saved servers</div>';
+      return;
+    }
+
+    // Sort by last connected (most recent first), then by name
+    const sorted = [...this.servers].sort((a, b) => {
+      if (a.lastConnected && b.lastConnected) {
+        return b.lastConnected - a.lastConnected;
+      }
+      if (a.lastConnected) return -1;
+      if (b.lastConnected) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    listContainer.innerHTML = sorted.map(server => {
+      const isConnected = this.connectedServer?.id === server.id;
+      const hasPassword = server.hasStoredPassword;
+      
+      return `
+        <div class="menu-item server-item ${isConnected ? 'active' : ''}" 
+             data-server-id="${server.id}">
+          <span class="status-dot ${isConnected ? 'connected' : 'disconnected'}"></span>
+          <div class="server-info">
+            <span class="server-name">${this.escapeHtml(server.name)}</span>
+            <span class="server-host">${server.username}@${server.host}</span>
+          </div>
+          <div class="server-actions">
+            ${!hasPassword ? '<span class="no-password-icon" title="Password not saved">ðŸ”‘</span>' : ''}
+            <button class="server-edit-btn" title="Edit">âœï¸</button>
+            <button class="server-delete-btn" title="Delete">ðŸ—‘ï¸</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  /**
+   * Update connection status display
+   */
+  updateStatus(status: ConnectionStatus, server?: ServerListItem | null): void {
+    this.status = status;
+    this.connectedServer = server || null;
+
+    const statusDot = this.button.querySelector('.status-dot')!;
+    const label = this.button.querySelector('.dropdown-label')!;
+
+    // Update status dot
+    statusDot.className = 'status-dot ' + status;
+
+    // Update label
+    if (status === 'connected' && server) {
+      label.textContent = server.name;
+    } else if (status === 'connecting') {
+      label.textContent = 'Connecting...';
+    } else {
+      label.textContent = 'Local';
+    }
+
+    // Show/hide disconnect section
+    const disconnectSections = this.menu.querySelectorAll('.disconnect-section');
+    disconnectSections.forEach(section => {
+      section.classList.toggle('hidden', status !== 'connected');
+    });
+
+    // Re-render server list to update active state
+    this.renderServerList();
+  }
+
+  /**
+   * Open the dropdown menu
+   */
+  open(): void {
+    this.isOpen = true;
+    this.menu.classList.remove('hidden');
+    this.button.classList.add('open');
+    this.refreshServers(); // Refresh on open
+  }
+
+  /**
+   * Close the dropdown menu
+   */
+  close(): void {
+    this.isOpen = false;
+    this.menu.classList.add('hidden');
+    this.button.classList.remove('open');
+  }
+
+  /**
+   * Toggle dropdown open/closed
+   */
+  toggle(): void {
+    if (this.isOpen) {
+      this.close();
+    } else {
+      this.open();
+    }
+  }
+
+  /**
+   * Escape HTML to prevent XSS
+   */
+  private escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+}
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\components\server-modal.ts =====
+
+/**
+ * Server Modal Component
+ * Modal dialog for adding and editing server profiles
+ */
+
+import { ServerProfile, ServerFormData } from '../../shared/types';
+
+type ModalMode = 'add' | 'edit';
+
+export interface ServerModalOptions {
+  onSave: (data: ServerFormData, id?: string) => Promise<void>;
+  onClose: () => void;
+}
+
+export class ServerModal {
+  private overlay!: HTMLElement;
+  private form!: HTMLFormElement;
+  private options: ServerModalOptions;
+  private mode: ModalMode = 'add';
+  private editingId: string | null = null;
+  private listenersAttached: boolean = false;
+
+  constructor(options: ServerModalOptions) {
+    this.options = options;
+    this.createModal();
+    this.attachEventListeners();
+  }
+
+  /**
+   * Create modal HTML
+   */
+  private createModal(): void {
+    // Remove existing modal if present (ensures clean state)
+    const existing = document.getElementById('server-modal-overlay');
+    if (existing) {
+      existing.remove();
+      this.listenersAttached = false;
+    }
+
+    const modalHtml = `
+      <div id="server-modal-overlay" class="modal-overlay hidden">
+        <div class="modal server-modal">
+          <div class="modal-header">
+            <h2 class="modal-title" id="server-modal-title">Add Server</h2>
+            <button class="modal-close" id="server-modal-close">âœ•</button>
+          </div>
+          <div class="modal-body">
+            <form id="server-modal-form">
+              <div class="form-section">
+                <div class="form-group">
+                  <label for="server-name">Display Name *</label>
+                  <input type="text" id="server-name" name="name" 
+                         placeholder="Pi - Living Room" required>
+                </div>
+                <div class="form-group">
+                  <label for="server-description">Description</label>
+                  <input type="text" id="server-description" name="description"
+                         placeholder="Raspberry Pi 4 (optional)">
+                </div>
+              </div>
+
+              <div class="form-section">
+                <div class="form-section-title">Connection</div>
+                <div class="form-row">
+                  <div class="form-group flex-grow">
+                    <label for="server-host">Host *</label>
+                    <input type="text" id="server-host" name="host"
+                           placeholder="192.168.1.100" required>
+                  </div>
+                  <div class="form-group port-field">
+                    <label for="server-port">Port *</label>
+                    <input type="number" id="server-port" name="port"
+                           value="22" min="1" max="65535" required>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="server-username">Username *</label>
+                  <input type="text" id="server-username" name="username"
+                         placeholder="pi" required>
+                </div>
+              </div>
+
+              <div class="form-section">
+                <div class="form-section-title">Authentication</div>
+                <div class="form-group">
+                  <label for="server-password">Password</label>
+                  <div class="password-input-wrapper">
+                    <input type="password" id="server-password" name="password"
+                           placeholder="Enter password">
+                    <button type="button" class="toggle-password" id="toggle-password">
+                      ðŸ‘
+                    </button>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="server-save-credentials" 
+                           name="saveCredentials" checked>
+                    <span>Save password securely</span>
+                  </label>
+                  <p class="form-hint">
+                    Password will be encrypted and stored in your system's credential manager
+                  </p>
+                </div>
+              </div>
+
+              <div id="server-modal-status" class="form-status hidden">
+                <span class="status-message"></span>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="server-modal-test">
+              Test Connection
+            </button>
+            <div style="flex: 1"></div>
+            <button type="button" class="btn btn-ghost" id="server-modal-cancel">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary" id="server-modal-save" 
+                    form="server-modal-form">
+              Save Server
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Append to body
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    this.overlay = document.getElementById('server-modal-overlay')!;
+    this.form = document.getElementById('server-modal-form') as HTMLFormElement;
+  }
+
+  /**
+   * Attach event listeners
+   */
+  private attachEventListeners(): void {
+    // Prevent duplicate attachment
+    if (this.listenersAttached) return;
+    this.listenersAttached = true;
+
+    // Close button
+    document.getElementById('server-modal-close')!.addEventListener('click', () => {
+      this.hide();
+    });
+
+    // Cancel button
+    document.getElementById('server-modal-cancel')!.addEventListener('click', () => {
+      this.hide();
+    });
+
+    // Test connection button
+    document.getElementById('server-modal-test')!.addEventListener('click', async () => {
+      await this.handleTestConnection();
+    });
+
+    // Close on overlay click
+    this.overlay.addEventListener('click', (e) => {
+      if (e.target === this.overlay) {
+        this.hide();
+      }
+    });
+
+    // Close on Escape
+    const escapeHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !this.overlay.classList.contains('hidden')) {
+        this.hide();
+      }
+    };
+    document.addEventListener('keydown', escapeHandler);
+
+    // Toggle password visibility
+    document.getElementById('toggle-password')!.addEventListener('click', () => {
+      const input = document.getElementById('server-password') as HTMLInputElement;
+      input.type = input.type === 'password' ? 'text' : 'password';
+    });
+
+    // Form submit
+    this.form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await this.handleSubmit();
+    });
+  }
+
+  /**
+   * Handle test connection
+   */
+  private async handleTestConnection(): Promise<void> {
+    const testBtn = document.getElementById('server-modal-test') as HTMLButtonElement;
+    const statusDiv = document.getElementById('server-modal-status')!;
+    const statusMsg = statusDiv.querySelector('.status-message')!;
+
+    // Validate required fields
+    const host = (document.getElementById('server-host') as HTMLInputElement).value.trim();
+    const port = parseInt((document.getElementById('server-port') as HTMLInputElement).value, 10);
+    const username = (document.getElementById('server-username') as HTMLInputElement).value.trim();
+    const password = (document.getElementById('server-password') as HTMLInputElement).value;
+
+    if (!host || !username || !password) {
+      statusDiv.classList.remove('hidden', 'success');
+      statusDiv.classList.add('error');
+      statusMsg.textContent = 'Please fill in host, username, and password to test';
+      return;
+    }
+
+    // Disable test button
+    testBtn.disabled = true;
+    testBtn.textContent = 'Testing...';
+    statusDiv.classList.remove('hidden', 'error', 'success');
+    statusMsg.textContent = 'Testing connection...';
+
+    try {
+      const result = await window.electronAPI.testConnection({ host, port, username, password });
+      
+      if (result.success) {
+        statusDiv.classList.add('success');
+        statusMsg.textContent = 'âœ“ Connection successful!';
+      } else {
+        statusDiv.classList.add('error');
+        statusMsg.textContent = `âœ— Connection failed: ${result.error || 'Unknown error'}`;
+      }
+    } catch (error: any) {
+      statusDiv.classList.add('error');
+      statusMsg.textContent = `âœ— Connection failed: ${error.message || 'Unknown error'}`;
+    } finally {
+      testBtn.disabled = false;
+      testBtn.textContent = 'Test Connection';
+    }
+  }
+
+  /**
+   * Handle form submission
+   */
+  private async handleSubmit(): Promise<void> {
+    const saveBtn = document.getElementById('server-modal-save') as HTMLButtonElement;
+    const statusDiv = document.getElementById('server-modal-status')!;
+    const statusMsg = statusDiv.querySelector('.status-message')!;
+    
+    // Disable save button
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+    statusDiv.classList.add('hidden');
+
+    try {
+      const formData = this.getFormData();
+      await this.options.onSave(formData, this.editingId || undefined);
+      this.hide();
+    } catch (error: any) {
+      // Show error
+      statusDiv.classList.remove('hidden', 'success');
+      statusDiv.classList.add('error');
+      statusMsg.textContent = error.message || 'Failed to save server';
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = this.mode === 'edit' ? 'Update Server' : 'Save Server';
+    }
+  }
+
+  /**
+   * Get form data
+   */
+  private getFormData(): ServerFormData {
+    return {
+      name: (document.getElementById('server-name') as HTMLInputElement).value,
+      description: (document.getElementById('server-description') as HTMLInputElement).value,
+      host: (document.getElementById('server-host') as HTMLInputElement).value,
+      port: parseInt((document.getElementById('server-port') as HTMLInputElement).value, 10),
+      username: (document.getElementById('server-username') as HTMLInputElement).value,
+      password: (document.getElementById('server-password') as HTMLInputElement).value || undefined,
+      authMethod: 'password',
+      saveCredentials: (document.getElementById('server-save-credentials') as HTMLInputElement).checked
+    };
+  }
+
+  /**
+   * Show modal for adding new server
+   */
+  showAdd(): void {
+    this.mode = 'add';
+    this.editingId = null;
+    
+    // Reset form
+    this.form.reset();
+    
+    // Get all input elements
+    const nameInput = document.getElementById('server-name') as HTMLInputElement;
+    const descInput = document.getElementById('server-description') as HTMLInputElement;
+    const hostInput = document.getElementById('server-host') as HTMLInputElement;
+    const portInput = document.getElementById('server-port') as HTMLInputElement;
+    const userInput = document.getElementById('server-username') as HTMLInputElement;
+    const passInput = document.getElementById('server-password') as HTMLInputElement;
+    const saveCredsInput = document.getElementById('server-save-credentials') as HTMLInputElement;
+    
+    // Reset values
+    portInput.value = '22';
+    saveCredsInput.checked = true;
+    
+    // Explicitly enable and remove any blocking attributes
+    [nameInput, descInput, hostInput, portInput, userInput, passInput, saveCredsInput].forEach(input => {
+      if (input) {
+        input.disabled = false;
+        input.removeAttribute('readonly');
+        input.style.pointerEvents = 'auto';
+      }
+    });
+    
+    // Update title and buttons
+    document.getElementById('server-modal-title')!.textContent = 'Add Server';
+    const saveBtn = document.getElementById('server-modal-save') as HTMLButtonElement;
+    saveBtn.textContent = 'Save Server';
+    saveBtn.disabled = false;
+    
+    const testBtn = document.getElementById('server-modal-test') as HTMLButtonElement;
+    testBtn.disabled = false;
+    testBtn.textContent = 'Test Connection';
+    
+    // Clear status
+    document.getElementById('server-modal-status')!.classList.add('hidden');
+    
+    // Show modal
+    this.overlay.classList.remove('hidden');
+    this.overlay.style.pointerEvents = 'auto';
+    
+    // Focus first input
+    setTimeout(() => {
+      nameInput?.focus();
+    }, 100);
+  }
+
+  /**
+   * Show modal for editing existing server
+   */
+  async showEdit(serverId: string): Promise<void> {
+    this.mode = 'edit';
+    this.editingId = serverId;
+
+    // Load server data
+    const server = await window.electronAPI.getServer(serverId);
+    if (!server) {
+      console.error('Server not found:', serverId);
+      return;
+    }
+
+    // Get all input elements
+    const nameInput = document.getElementById('server-name') as HTMLInputElement;
+    const descInput = document.getElementById('server-description') as HTMLInputElement;
+    const hostInput = document.getElementById('server-host') as HTMLInputElement;
+    const portInput = document.getElementById('server-port') as HTMLInputElement;
+    const userInput = document.getElementById('server-username') as HTMLInputElement;
+    const passInput = document.getElementById('server-password') as HTMLInputElement;
+    const saveCredsInput = document.getElementById('server-save-credentials') as HTMLInputElement;
+
+    // Populate form
+    nameInput.value = server.name;
+    descInput.value = server.description;
+    hostInput.value = server.host;
+    portInput.value = server.port.toString();
+    userInput.value = server.username;
+    passInput.value = '';  // Don't show stored password
+    saveCredsInput.checked = server.saveCredentials;
+
+    // Explicitly enable and remove any blocking attributes
+    [nameInput, descInput, hostInput, portInput, userInput, passInput, saveCredsInput].forEach(input => {
+      if (input) {
+        input.disabled = false;
+        input.removeAttribute('readonly');
+        input.style.pointerEvents = 'auto';
+      }
+    });
+
+    // Update title and buttons
+    document.getElementById('server-modal-title')!.textContent = 'Edit Server';
+    const saveBtn = document.getElementById('server-modal-save') as HTMLButtonElement;
+    saveBtn.textContent = 'Update Server';
+    saveBtn.disabled = false;
+    
+    const testBtn = document.getElementById('server-modal-test') as HTMLButtonElement;
+    testBtn.disabled = false;
+    testBtn.textContent = 'Test Connection';
+
+    // Clear status
+    document.getElementById('server-modal-status')!.classList.add('hidden');
+
+    // Show modal
+    this.overlay.classList.remove('hidden');
+    this.overlay.style.pointerEvents = 'auto';
+
+    // Focus first input
+    setTimeout(() => {
+      nameInput?.focus();
+    }, 100);
+  }
+
+  /**
+   * Hide the modal
+   */
+  hide(): void {
+    this.overlay.classList.add('hidden');
+    this.options.onClose();
+  }
+}
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\styles\components.css =====
+
+/**
+ * Component Styles
+ * Dropdown, modals, and related components
+ */
+
+/* ==================== SERVER DROPDOWN ==================== */
+
+.server-dropdown {
+  position: relative;
+  margin-left: 12px;
+}
+
+.server-dropdown-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  max-width: 180px;
+  min-width: 100px;
+}
+
+.server-dropdown-button:hover,
+.server-dropdown-button.open {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.disconnected,
+.status-dot.local {
+  background-color: var(--text-secondary);
+}
+
+.status-dot.connecting {
+  background-color: var(--accent-warning);
+  animation: pulse 1s infinite;
+}
+
+.status-dot.connected {
+  background-color: var(--accent-success);
+  box-shadow: 0 0 6px var(--accent-success);
+}
+
+.status-dot.error {
+  background-color: var(--accent-error);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.dropdown-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  text-align: left;
+}
+
+.dropdown-arrow {
+  font-size: 10px;
+  opacity: 0.6;
+  transition: transform var(--transition-fast);
+}
+
+.server-dropdown-button.open .dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+/* Dropdown Menu */
+.server-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 280px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.server-dropdown-menu.hidden {
+  display: none;
+}
+
+.menu-section {
+  padding: 4px 0;
+}
+
+.menu-section-label {
+  padding: 6px 12px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.menu-item:hover {
+  background: var(--bg-hover);
+}
+
+.menu-item.active {
+  background: var(--bg-active);
+}
+
+.menu-item .menu-icon {
+  width: 16px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.menu-item .menu-item-label {
+  flex: 1;
+}
+
+.menu-item.disconnect {
+  color: var(--accent-error);
+}
+
+.menu-item.disconnect:hover {
+  background: rgba(241, 76, 76, 0.1);
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--border-primary);
+  margin: 4px 0;
+}
+
+.menu-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Server Item in Menu */
+.server-item {
+  position: relative;
+}
+
+.server-item .server-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.server-item .server-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-item .server-host {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.server-item .server-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.server-item:hover .server-actions {
+  opacity: 1;
+}
+
+.server-item .server-actions button {
+  padding: 2px 4px;
+  font-size: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity var(--transition-fast);
+}
+
+.server-item .server-actions button:hover {
+  opacity: 1;
+}
+
+.server-item .no-password-icon {
+  font-size: 10px;
+  opacity: 0.5;
+}
+
+/* ==================== MODALS ==================== */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(2px);
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  width: 400px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  animation: modalSlideIn 0.2s ease;
+}
+
+.modal.modal-small {
+  width: 340px;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.modal-close {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  transition: all var(--transition-fast);
+}
+
+.modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+}
+
+/* ==================== FORMS ==================== */
+
+.form-section {
+  margin-bottom: 16px;
+}
+
+.form-section:last-child {
+  margin-bottom: 0;
+}
+
+.form-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.form-group input[type="text"],
+.form-group input[type="password"],
+.form-group input[type="number"] {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color var(--transition-fast);
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.form-group input::placeholder {
+  color: var(--text-disabled);
+}
+
+.form-row {
+  display: flex;
+  gap: 10px;
+}
+
+.form-row .flex-grow {
+  flex: 1;
+}
+
+.form-row .port-field {
+  width: 80px;
+}
+
+.form-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* Password Input */
+.password-input-wrapper {
+  position: relative;
+}
+
+.password-input-wrapper input {
+  padding-right: 36px;
+}
+
+.toggle-password {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px;
+  font-size: 12px;
+  opacity: 0.6;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.toggle-password:hover {
+  opacity: 1;
+}
+
+/* Checkbox */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.checkbox-label input {
+  accent-color: var(--accent-primary);
+}
+
+/* Form Status */
+.form-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-top: 12px;
+}
+
+.form-status.hidden {
+  display: none;
+}
+
+.form-status.error {
+  background: rgba(241, 76, 76, 0.1);
+  border: 1px solid var(--accent-error);
+  color: var(--accent-error);
+}
+
+.form-status.success {
+  background: rgba(13, 188, 121, 0.1);
+  border: 1px solid var(--accent-success);
+  color: var(--accent-success);
+}
+
+/* ==================== BUTTONS ==================== */
+
+.btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  transition: all var(--transition-fast);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-secondary);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-danger {
+  background: var(--accent-error);
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #ff6b6b;
+}
+
+/* ==================== HIDDEN ELEMENTS ==================== */
+
+.hidden {
+  display: none !important;
+}
+
+.disconnect-section.hidden {
+  display: none;
+}
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\styles\layout.css =====
+
+/**
+ * Layout Styles
+ * Titlebar, main container, panels, and resize handle
+ */
+
+/* ==================== Titlebar ==================== */
+#titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: var(--titlebar-height);
+  background-color: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-secondary);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.titlebar-drag-region {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 10px;
+  flex: 1;
+}
+
+.titlebar-icon {
+  font-size: 16px;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-title {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.titlebar-controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-button {
+  width: 46px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: background-color var(--transition-fast);
+}
+
+.titlebar-button:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.titlebar-button.close-button:hover {
+  background-color: #e81123;
+  color: white;
+}
+
+.titlebar-button svg {
+  width: 10px;
+  height: 10px;
+}
+
+/* ==================== Main Container ==================== */
+#main-container {
+  display: flex;
+  height: calc(100vh - var(--titlebar-height) - var(--statusbar-height));
+  overflow: hidden;
+}
+
+/* ==================== Panels ==================== */
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background-color: var(--bg-primary);
+}
+
+#terminal-panel {
+  flex: 1 1 60%;
+}
+
+#chat-panel {
+  flex: 1 1 40%;
+  border-left: 1px solid var(--border-primary);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: var(--panel-header-height);
+  padding: 0 12px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;
+}
+
+.panel-header-left,
+.panel-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-title {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+/* Connection Badge */
+.connection-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  background-color: var(--bg-tertiary);
+}
+
+.connection-badge .status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.connection-badge.local .status-dot {
+  background-color: var(--accent-success);
+}
+
+.connection-badge.connected .status-dot {
+  background-color: var(--accent-success);
+  animation: pulse 2s infinite;
+}
+
+.connection-badge.disconnected .status-dot {
+  background-color: var(--text-secondary);
+}
+
+.connection-badge.error .status-dot {
+  background-color: var(--accent-error);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Model Badge */
+.model-badge {
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  background-color: var(--accent-primary);
+  color: white;
+}
+
+/* ==================== Resize Handle ==================== */
+#resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background-color: transparent;
+  position: relative;
+  flex-shrink: 0;
+  transition: background-color var(--transition-fast);
+}
+
+#resize-handle:hover,
+#resize-handle.dragging {
+  background-color: var(--accent-primary);
+}
+
+.resize-handle-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background-color: var(--border-primary);
+  transform: translateX(-50%);
+}
+
+#resize-handle:hover .resize-handle-line,
+#resize-handle.dragging .resize-handle-line {
+  background-color: transparent;
+}
+
+/* ==================== Terminal Container ==================== */
+#terminal-container {
+  flex: 1;
+  padding: 4px;
+  overflow: hidden;
+}
+
+/* ==================== Chat Container (Placeholder) ==================== */
+#chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.chat-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.chat-placeholder .placeholder-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.chat-placeholder h2 {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.chat-placeholder p {
+  font-size: 13px;
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+.chat-placeholder .placeholder-hint {
+  margin-top: 16px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* Chat Input (Placeholder) */
+#chat-input-container {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--border-primary);
+  background-color: var(--bg-secondary);
+}
+
+#chat-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  resize: none;
+  min-height: 36px;
+  max-height: 120px;
+}
+
+#chat-input:focus {
+  border-color: var(--accent-primary);
+}
+
+#chat-input::placeholder {
+  color: var(--text-disabled);
+}
+
+.send-button {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background-color: var(--accent-primary);
+  color: white;
+  transition: background-color var(--transition-fast);
+}
+
+.send-button:hover:not(:disabled) {
+  background-color: var(--accent-secondary);
+}
+
+.send-button:disabled {
+  background-color: var(--bg-tertiary);
+  color: var(--text-disabled);
+}
+
+/* ==================== Status Bar ==================== */
+#statusbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: var(--statusbar-height);
+  padding: 0 10px;
+  background-color: var(--accent-primary);
+  color: white;
+  font-size: 12px;
+}
+
+.statusbar-left,
+.statusbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#statusbar span {
+  opacity: 0.9;
+}
+/* ==================== Header Buttons ==================== */
+.header-button {
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.header-button:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.header-button.hidden {
+  display: none;
+}
+
+/* ==================== Connection Badge Updates ==================== */
+.connection-badge.connecting .status-dot {
+  background-color: var(--accent-warning);
+  animation: pulse 1s infinite;
+}
+
+/* ==================== Modal ==================== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  width: 360px;
+  max-width: 90%;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.modal-close {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 16px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+}
+
+/* ==================== Form Styles ==================== */
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-group:last-of-type {
+  margin-bottom: 0;
+}
+
+.form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+}
+
+.form-group input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.form-group input::placeholder {
+  color: var(--text-disabled);
+}
+
+.form-status {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.form-status.error {
+  background: rgba(241, 76, 76, 0.1);
+  border: 1px solid var(--accent-error);
+  color: var(--accent-error);
+}
+
+.form-status.hidden {
+  display: none;
+}
+
+/* ==================== Modal Buttons ==================== */
+.btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all var(--transition-fast);
+}
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--accent-secondary);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\styles\main.css =====
+
+/**
+ * Main Styles
+ * Global styles and CSS custom properties
+ */
+
+/* CSS Custom Properties (Theme Variables) */
+:root {
+  /* Background colors */
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d2d;
+  --bg-hover: #3c3c3c;
+  --bg-active: #094771;
+
+  /* Text colors */
+  --text-primary: #d4d4d4;
+  --text-secondary: #858585;
+  --text-disabled: #5a5a5a;
+
+  /* Accent colors */
+  --accent-primary: #007acc;
+  --accent-secondary: #0098ff;
+  --accent-success: #0dbc79;
+  --accent-warning: #e5e510;
+  --accent-error: #f14c4c;
+
+  /* Border colors */
+  --border-primary: #3c3c3c;
+  --border-secondary: #2d2d2d;
+
+  /* Dimensions */
+  --titlebar-height: 32px;
+  --statusbar-height: 24px;
+  --panel-header-height: 35px;
+
+  /* Transitions */
+  --transition-fast: 0.1s ease;
+  --transition-normal: 0.2s ease;
+}
+
+/* Reset */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Global Styles */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Selection */
+::selection {
+  background-color: var(--accent-primary);
+  color: white;
+}
+
+/* Scrollbar Styles */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-hover);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Focus Styles */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 1px solid var(--accent-primary);
+  outline-offset: -1px;
+}
+
+/* Button Reset */
+button {
+  font-family: inherit;
+  font-size: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Utility Classes */
+.hidden {
+  display: none !important;
+}
+
+.disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Prevent text selection during drag */
+.resize-dragging {
+  user-select: none;
+  cursor: col-resize !important;
+}
+
+.resize-dragging * {
+  cursor: col-resize !important;
+}
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\styles\terminal.css =====
+
+/**
+ * Terminal Styles
+ * xterm.js customizations and overrides
+ */
+
+/* Terminal Container */
+#terminal-container {
+  background-color: var(--bg-primary);
+}
+
+/* xterm.js Overrides */
+#terminal-container .xterm {
+  padding: 8px;
+  height: 100%;
+}
+
+#terminal-container .xterm-viewport {
+  /* Custom scrollbar for terminal */
+  overflow-y: auto !important;
+}
+
+#terminal-container .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+#terminal-container .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#terminal-container .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+#terminal-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Terminal selection */
+#terminal-container .xterm-selection div {
+  background-color: rgba(38, 79, 120, 0.7) !important;
+}
+
+/* Cursor customization */
+#terminal-container .xterm-cursor-layer {
+  /* Handled by xterm options */
+}
+
+/* Terminal text rendering */
+#terminal-container .xterm-rows {
+  /* Improve text rendering */
+  text-rendering: optimizeLegibility;
+}
+
+/* Link hover state */
+#terminal-container .xterm-link-layer a {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+/* Terminal focus indicator */
+#terminal-container:focus-within {
+  /* Optional: Add focus indicator around terminal */
+}
+
+/* Screen reader support */
+#terminal-container .xterm-accessibility {
+  /* Accessibility styles handled by xterm */
+}
+
+/* Helper text layer */
+#terminal-container .xterm-helper-textarea {
+  /* Hidden textarea for clipboard operations */
+}
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\index.html =====
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:;">
+    <title>Pi Assistant</title>
+    
+    <!-- Stylesheets (loaded by webpack) -->
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/layout.css">
+    <link rel="stylesheet" href="styles/terminal.css">
+    <link rel="stylesheet" href="styles/components.css">
+</head>
+<body>
+    <!-- Custom Title Bar -->
+    <header id="titlebar">
+        <div class="titlebar-drag-region">
+            <div class="titlebar-icon">
+                <!-- TODO: Add app icon SVG -->
+                <span class="icon-placeholder">ðŸ“</span>
+            </div>
+            <span class="titlebar-title">Pi Assistant</span>
+        </div>
+        <div class="titlebar-controls">
+            <button id="minimize-btn" class="titlebar-button" aria-label="Minimize">
+                <svg width="10" height="1" viewBox="0 0 10 1">
+                    <rect width="10" height="1" fill="currentColor"/>
+                </svg>
+            </button>
+            <button id="maximize-btn" class="titlebar-button" aria-label="Maximize">
+                <svg width="10" height="10" viewBox="0 0 10 10">
+                    <rect width="10" height="10" fill="none" stroke="currentColor" stroke-width="1"/>
+                </svg>
+            </button>
+            <button id="close-btn" class="titlebar-button close-button" aria-label="Close">
+                <svg width="10" height="10" viewBox="0 0 10 10">
+                    <line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" stroke-width="1.2"/>
+                    <line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" stroke-width="1.2"/>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main id="main-container">
+        <!-- Left Panel: Terminal -->
+        <section id="terminal-panel" class="panel">
+            <div class="panel-header">
+                <div class="panel-header-left">
+                    <span class="panel-title">Terminal</span>
+                    <!-- Server Dropdown Container -->
+                    <div id="server-dropdown-container"></div>
+                </div>
+                <div class="panel-header-right">
+                    <!-- Actions moved to dropdown -->
+                </div>
+            </div>
+            <div id="terminal-container"></div>
+        </section>
+
+        <!-- Resize Handle -->
+        <div id="resize-handle" role="separator" aria-label="Resize panels">
+            <div class="resize-handle-line"></div>
+        </div>
+
+        <!-- Right Panel: AI Chat (Placeholder) -->
+        <section id="chat-panel" class="panel">
+            <div class="panel-header">
+                <div class="panel-header-left">
+                    <span class="panel-title">AI Assistant</span>
+                </div>
+                <div class="panel-header-right">
+                    <span class="model-badge">Claude 3.5 Sonnet</span>
+                </div>
+            </div>
+            <div id="chat-container">
+                <div class="chat-placeholder">
+                    <div class="placeholder-icon">ðŸ¤–</div>
+                    <h2>AI Assistant</h2>
+                    <p>Chat functionality will be implemented in Phase 4.</p>
+                    <p class="placeholder-hint">For now, use the terminal on the left to interact with your system.</p>
+                </div>
+            </div>
+            <!-- Chat input placeholder -->
+            <div id="chat-input-container" class="disabled">
+                <textarea 
+                    id="chat-input" 
+                    placeholder="Ask the AI assistant... (Coming in Phase 4)"
+                    disabled
+                ></textarea>
+                <button id="send-btn" class="send-button" disabled>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M1 8L15 1L8 15L7 9L1 8Z"/>
+                    </svg>
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <!-- Status Bar -->
+    <footer id="statusbar">
+        <div class="statusbar-left">
+            <span id="shell-info">PowerShell</span>
+        </div>
+        <div class="statusbar-right">
+            <span id="terminal-size">80Ã—24</span>
+        </div>
+    </footer>
+
+    <!-- Quick Connect Dialog -->
+    <div id="quick-connect-dialog" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">Quick Connect</h2>
+                <button class="modal-close" id="quick-connect-close">âœ•</button>
+            </div>
+            <div class="modal-body">
+                <form id="quick-connect-form">
+                    <div class="form-group">
+                        <label for="qc-host">Host</label>
+                        <input type="text" id="qc-host" name="host" 
+                               placeholder="192.168.1.100" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="qc-port">Port</label>
+                        <input type="number" id="qc-port" name="port" 
+                               value="22" min="1" max="65535" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="qc-username">Username</label>
+                        <input type="text" id="qc-username" name="username" 
+                               placeholder="pi" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="qc-password">Password</label>
+                        <input type="password" id="qc-password" name="password" 
+                               placeholder="Enter password" required>
+                    </div>
+                    <div id="qc-error" class="form-status error hidden">
+                        <span class="status-message"></span>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" id="qc-cancel">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="qc-submit" form="quick-connect-form">
+                    Connect
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Password Prompt Dialog -->
+    <div id="password-prompt-dialog" class="modal-overlay hidden">
+        <div class="modal modal-small">
+            <div class="modal-header">
+                <h2 class="modal-title">Enter Password</h2>
+                <button class="modal-close" id="password-prompt-close">âœ•</button>
+            </div>
+            <div class="modal-body">
+                <form id="password-prompt-form">
+                    <p id="password-prompt-message" class="form-hint" style="margin-bottom: 12px;">
+                        Enter password for server
+                    </p>
+                    <div class="form-group">
+                        <label for="prompt-password">Password</label>
+                        <input type="password" id="prompt-password" name="password" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="prompt-save-password">
+                            <span>Save password for future connections</span>
+                        </label>
+                    </div>
+                    <div id="password-prompt-error" class="form-status error hidden">
+                        <span class="status-message"></span>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" id="password-prompt-cancel">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="password-prompt-submit" 
+                        form="password-prompt-form">
+                    Connect
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="renderer.bundle.js"></script>
+</body>
+</html>
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\layout.d.ts =====
+
+/**
+ * Layout Manager
+ * Handles the split-pane layout with draggable resize handle
+ */
+export interface LayoutManagerConfig {
+    leftPanel: HTMLElement;
+    rightPanel: HTMLElement;
+    handle: HTMLElement;
+    minPanelWidth: number;
+    onResize?: () => void;
+}
+export declare class LayoutManager {
+    private leftPanel;
+    private rightPanel;
+    private handle;
+    private minPanelWidth;
+    private onResize?;
+    private isDragging;
+    private startX;
+    private startLeftWidth;
+    constructor(config: LayoutManagerConfig);
+    /**
+     * Initialize the layout manager
+     */
+    initialize(): void;
+    /**
+     * Set up mouse event listeners for drag handling
+     */
+    private setupEventListeners;
+    /**
+     * Handle mouse down on resize handle
+     */
+    private onMouseDown;
+    /**
+     * Handle mouse move during drag
+     */
+    private onMouseMove;
+    /**
+     * Handle mouse up to end drag
+     */
+    private onMouseUp;
+    /**
+     * Handle window resize
+     */
+    private onWindowResize;
+    /**
+     * Set the left panel width in pixels
+     */
+    private setLeftPanelWidth;
+    /**
+     * Reset layout to default
+     */
+    resetLayout(): void;
+    /**
+     * Save current layout to localStorage
+     */
+    saveLayout(): void;
+    /**
+     * Restore layout from localStorage
+     */
+    restoreLayout(): void;
+    /**
+     * Get current layout state
+     */
+    getLayoutState(): {
+        leftWidthPercent: number;
+    };
+    /**
+     * Cleanup event listeners
+     */
+    dispose(): void;
+}
+//# sourceMappingURL=layout.d.ts.map
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\layout.ts =====
+
+/**
+ * Layout Manager
+ * Handles the split-pane layout with draggable resize handle
+ */
+
+export interface LayoutManagerConfig {
+  leftPanel: HTMLElement;
+  rightPanel: HTMLElement;
+  handle: HTMLElement;
+  minPanelWidth: number;
+  onResize?: () => void;
+}
+
+const STORAGE_KEY = 'pi-assistant-layout';
+const DEFAULT_LEFT_WIDTH_PERCENT = 60;
+
+export class LayoutManager {
+  private leftPanel: HTMLElement;
+  private rightPanel: HTMLElement;
+  private handle: HTMLElement;
+  private minPanelWidth: number;
+  private onResize?: () => void;
+
+  private isDragging = false;
+  private startX = 0;
+  private startLeftWidth = 0;
+
+  constructor(config: LayoutManagerConfig) {
+    this.leftPanel = config.leftPanel;
+    this.rightPanel = config.rightPanel;
+    this.handle = config.handle;
+    this.minPanelWidth = config.minPanelWidth;
+    this.onResize = config.onResize;
+  }
+
+  /**
+   * Initialize the layout manager
+   */
+  initialize(): void {
+    this.restoreLayout();
+    this.setupEventListeners();
+    console.log('Layout manager initialized');
+  }
+
+  /**
+   * Set up mouse event listeners for drag handling
+   */
+  private setupEventListeners(): void {
+    // Mouse down on handle starts drag
+    this.handle.addEventListener('mousedown', this.onMouseDown.bind(this));
+
+    // Mouse move and up on document for drag tracking
+    document.addEventListener('mousemove', this.onMouseMove.bind(this));
+    document.addEventListener('mouseup', this.onMouseUp.bind(this));
+
+    // Handle window resize
+    window.addEventListener('resize', this.onWindowResize.bind(this));
+
+    // Double-click to reset to default
+    this.handle.addEventListener('dblclick', this.resetLayout.bind(this));
+  }
+
+  /**
+   * Handle mouse down on resize handle
+   */
+  private onMouseDown(event: MouseEvent): void {
+    event.preventDefault();
+    this.isDragging = true;
+    this.startX = event.clientX;
+    this.startLeftWidth = this.leftPanel.offsetWidth;
+
+    // Add dragging class for visual feedback
+    this.handle.classList.add('dragging');
+    document.body.classList.add('resize-dragging');
+  }
+
+  /**
+   * Handle mouse move during drag
+   */
+  private onMouseMove(event: MouseEvent): void {
+    if (!this.isDragging) return;
+
+    event.preventDefault();
+
+    const containerWidth = this.leftPanel.parentElement?.offsetWidth || window.innerWidth;
+    const deltaX = event.clientX - this.startX;
+    let newLeftWidth = this.startLeftWidth + deltaX;
+
+    // Enforce minimum widths
+    const maxLeftWidth = containerWidth - this.minPanelWidth - this.handle.offsetWidth;
+    newLeftWidth = Math.max(this.minPanelWidth, Math.min(newLeftWidth, maxLeftWidth));
+
+    // Apply new width
+    this.setLeftPanelWidth(newLeftWidth);
+
+    // Notify listeners
+    if (this.onResize) {
+      this.onResize();
+    }
+  }
+
+  /**
+   * Handle mouse up to end drag
+   */
+  private onMouseUp(): void {
+    if (!this.isDragging) return;
+
+    this.isDragging = false;
+    this.handle.classList.remove('dragging');
+    document.body.classList.remove('resize-dragging');
+
+    // Save layout
+    this.saveLayout();
+
+    // Final resize notification
+    if (this.onResize) {
+      this.onResize();
+    }
+  }
+
+  /**
+   * Handle window resize
+   */
+  private onWindowResize(): void {
+    // Ensure panels stay within bounds on window resize
+    const containerWidth = this.leftPanel.parentElement?.offsetWidth || window.innerWidth;
+    const currentLeftWidth = this.leftPanel.offsetWidth;
+    const maxLeftWidth = containerWidth - this.minPanelWidth - this.handle.offsetWidth;
+
+    if (currentLeftWidth > maxLeftWidth) {
+      this.setLeftPanelWidth(maxLeftWidth);
+    }
+
+    if (this.onResize) {
+      this.onResize();
+    }
+  }
+
+  /**
+   * Set the left panel width in pixels
+   */
+  private setLeftPanelWidth(width: number): void {
+    this.leftPanel.style.width = `${width}px`;
+    this.leftPanel.style.flexGrow = '0';
+    this.leftPanel.style.flexShrink = '0';
+  }
+
+  /**
+   * Reset layout to default
+   */
+  resetLayout(): void {
+    const containerWidth = this.leftPanel.parentElement?.offsetWidth || window.innerWidth;
+    const defaultWidth = (containerWidth * DEFAULT_LEFT_WIDTH_PERCENT) / 100;
+    this.setLeftPanelWidth(defaultWidth);
+    this.saveLayout();
+
+    if (this.onResize) {
+      this.onResize();
+    }
+
+    console.log('Layout reset to default');
+  }
+
+  /**
+   * Save current layout to localStorage
+   */
+  saveLayout(): void {
+    try {
+      const containerWidth = this.leftPanel.parentElement?.offsetWidth || window.innerWidth;
+      const leftWidthPercent = (this.leftPanel.offsetWidth / containerWidth) * 100;
+      
+      const layoutData = {
+        leftWidthPercent,
+        timestamp: Date.now()
+      };
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(layoutData));
+      console.log(`Layout saved: ${leftWidthPercent.toFixed(1)}%`);
+    } catch (error) {
+      console.error('Failed to save layout:', error);
+    }
+  }
+
+  /**
+   * Restore layout from localStorage
+   */
+  restoreLayout(): void {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      
+      if (stored) {
+        const layoutData = JSON.parse(stored);
+        const containerWidth = this.leftPanel.parentElement?.offsetWidth || window.innerWidth;
+        const leftWidth = (containerWidth * layoutData.leftWidthPercent) / 100;
+        
+        // Validate width is reasonable
+        if (leftWidth >= this.minPanelWidth && leftWidth <= containerWidth - this.minPanelWidth) {
+          this.setLeftPanelWidth(leftWidth);
+          console.log(`Layout restored: ${layoutData.leftWidthPercent.toFixed(1)}%`);
+          return;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to restore layout:', error);
+    }
+
+    // Use default if restore fails
+    this.resetLayout();
+  }
+
+  /**
+   * Get current layout state
+   */
+  getLayoutState(): { leftWidthPercent: number } {
+    const containerWidth = this.leftPanel.parentElement?.offsetWidth || window.innerWidth;
+    return {
+      leftWidthPercent: (this.leftPanel.offsetWidth / containerWidth) * 100
+    };
+  }
+
+  /**
+   * Cleanup event listeners
+   */
+  dispose(): void {
+    document.removeEventListener('mousemove', this.onMouseMove.bind(this));
+    document.removeEventListener('mouseup', this.onMouseUp.bind(this));
+    window.removeEventListener('resize', this.onWindowResize.bind(this));
+    console.log('Layout manager disposed');
+  }
+}
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\renderer.d.ts =====
+
+/**
+ * Renderer Process Entry Point
+ * Initializes all UI components and connects them to the main process
+ */
+export {};
+//# sourceMappingURL=renderer.d.ts.map
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\renderer.ts =====
+
+/**
+ * Renderer Process Entry Point
+ * Initializes all UI components and connects them to the main process
+ */
+
+import { TerminalManager } from './terminal';
+import { LayoutManager } from './layout';
+import { ServerDropdown } from './components/server-dropdown';
+import { ServerModal } from './components/server-modal';
+import type { ServerProfile, ServerFormData } from '../shared/types';
+
+// Import xterm.js CSS
+import 'xterm/css/xterm.css';
+
+// Global references
+let terminalManager: TerminalManager | null = null;
+let layoutManager: LayoutManager | null = null;
+let serverDropdown: ServerDropdown | null = null;
+let serverModal: ServerModal | null = null;
+let isSSHConnected = false;
+let currentServerId: string | null = null;
+
+/**
+ * Initialize the application
+ */
+function initializeApp(): void {
+  console.log('Initializing Pi Assistant...');
+
+  // Initialize layout
+  initializeLayout();
+
+  // Initialize terminal
+  initializeTerminal();
+
+  // Initialize window controls
+  initializeWindowControls();
+
+  // Set up global keyboard shortcuts
+  setupKeyboardShortcuts();
+
+  // Initialize server management UI
+  initializeServerManagement();
+
+  console.log('Pi Assistant initialized successfully');
+}
+
+/**
+ * Initialize the split-pane layout
+ */
+function initializeLayout(): void {
+  const leftPanel = document.getElementById('terminal-panel');
+  const rightPanel = document.getElementById('chat-panel');
+  const handle = document.getElementById('resize-handle');
+
+  if (!leftPanel || !rightPanel || !handle) {
+    console.error('Layout elements not found');
+    return;
+  }
+
+  layoutManager = new LayoutManager({
+    leftPanel,
+    rightPanel,
+    handle,
+    minPanelWidth: 200,
+    onResize: () => {
+      // Refit terminal when layout changes
+      if (terminalManager) {
+        terminalManager.fit();
+      }
+    }
+  });
+
+  layoutManager.initialize();
+}
+
+/**
+ * Initialize the terminal emulator
+ */
+function initializeTerminal(): void {
+  const container = document.getElementById('terminal-container');
+  
+  if (!container) {
+    console.error('Terminal container not found');
+    return;
+  }
+
+  terminalManager = new TerminalManager({
+    container,
+    onData: (data: string) => {
+      // Send user input to main process
+      window.electronAPI.sendTerminalInput(data);
+    },
+    onResize: (cols: number, rows: number) => {
+      // Notify main process of resize
+      window.electronAPI.resizeTerminal(cols, rows);
+      // Update status bar
+      updateTerminalSize(cols, rows);
+    }
+  });
+
+  terminalManager.initialize();
+
+  // Listen for terminal data from main process
+  window.electronAPI.onTerminalData((data: string) => {
+    if (terminalManager) {
+      terminalManager.write(data);
+    }
+  });
+
+  // Initial resize notification
+  const dims = terminalManager.getDimensions();
+  window.electronAPI.resizeTerminal(dims.cols, dims.rows);
+  updateTerminalSize(dims.cols, dims.rows);
+}
+
+/**
+ * Update terminal size display in status bar
+ */
+function updateTerminalSize(cols: number, rows: number): void {
+  const sizeElement = document.getElementById('terminal-size');
+  if (sizeElement) {
+    sizeElement.textContent = `${cols}Ã—${rows}`;
+  }
+}
+
+/**
+ * Initialize window control buttons
+ */
+function initializeWindowControls(): void {
+  const minimizeBtn = document.getElementById('minimize-btn');
+  const maximizeBtn = document.getElementById('maximize-btn');
+  const closeBtn = document.getElementById('close-btn');
+
+  minimizeBtn?.addEventListener('click', () => {
+    window.electronAPI.minimizeWindow();
+  });
+
+  maximizeBtn?.addEventListener('click', async () => {
+    window.electronAPI.maximizeWindow();
+    // Update maximize button icon based on state
+    await updateMaximizeButton();
+  });
+
+  closeBtn?.addEventListener('click', () => {
+    window.electronAPI.closeWindow();
+  });
+
+  // Update maximize button on window state change
+  // Note: In a full implementation, you'd listen for maximize/unmaximize events
+}
+
+/**
+ * Update maximize button appearance based on window state
+ */
+async function updateMaximizeButton(): Promise<void> {
+  const maximizeBtn = document.getElementById('maximize-btn');
+  if (!maximizeBtn) return;
+
+  const isMaximized = await window.electronAPI.isMaximized();
+  
+  if (isMaximized) {
+    // Show restore icon (two overlapping rectangles)
+    maximizeBtn.innerHTML = `
+      <svg width="10" height="10" viewBox="0 0 10 10">
+        <rect x="2" y="0" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1"/>
+        <rect x="0" y="2" width="8" height="8" fill="var(--bg-primary)" stroke="currentColor" stroke-width="1"/>
+      </svg>
+    `;
+    maximizeBtn.setAttribute('aria-label', 'Restore');
+  } else {
+    // Show maximize icon (single rectangle)
+    maximizeBtn.innerHTML = `
+      <svg width="10" height="10" viewBox="0 0 10 10">
+        <rect width="10" height="10" fill="none" stroke="currentColor" stroke-width="1"/>
+      </svg>
+    `;
+    maximizeBtn.setAttribute('aria-label', 'Maximize');
+  }
+}
+
+/**
+ * Set up global keyboard shortcuts
+ */
+function setupKeyboardShortcuts(): void {
+  document.addEventListener('keydown', (event: KeyboardEvent) => {
+    // Ctrl+Shift+I: Open DevTools (handled by Electron, but we can add more)
+    
+    // Ctrl+L: Clear terminal
+    if (event.ctrlKey && event.key === 'l') {
+      event.preventDefault();
+      terminalManager?.clear();
+    }
+
+    // Ctrl+Shift+T: Focus terminal
+    if (event.ctrlKey && event.shiftKey && event.key === 'T') {
+      event.preventDefault();
+      terminalManager?.focus();
+    }
+
+    // F11: Toggle maximize
+    if (event.key === 'F11') {
+      event.preventDefault();
+      window.electronAPI.maximizeWindow();
+    }
+
+    // Escape: Blur terminal (for accessibility)
+    if (event.key === 'Escape') {
+      terminalManager?.blur();
+    }
+  });
+}
+
+/**
+ * Initialize server management UI
+ */
+function initializeServerManagement(): void {
+  // Initialize server dropdown
+  const dropdownContainer = document.getElementById('server-dropdown-container');
+  if (dropdownContainer) {
+    serverDropdown = new ServerDropdown({
+      container: dropdownContainer,
+      onSelectServer: handleServerSelect,
+      onAddServer: handleAddServer,
+      onEditServer: handleEditServer,
+      onDeleteServer: handleDeleteServer,
+      onQuickConnect: handleQuickConnect,
+      onDisconnect: handleDisconnect,
+      onLocalTerminal: handleLocalTerminal
+    });
+    serverDropdown.initialize();
+  } else {
+    console.error('Server dropdown container not found');
+  }
+
+  // Initialize server modal
+  serverModal = new ServerModal({
+    onSave: handleServerSave,
+    onClose: () => {}
+  });
+
+  // Initialize quick connect dialog
+  initializeQuickConnectDialog();
+
+  // Initialize password prompt dialog
+  initializePasswordPromptDialog();
+
+  // Listen for SSH status changes from main process
+  window.electronAPI.onSSHStatus((data) => {
+    console.log('SSH status changed:', data);
+    if (data.status === 'disconnected' && isSSHConnected) {
+      // Connection was lost
+      handleConnectionLost();
+    }
+  });
+
+  console.log('Server management UI initialized');
+}
+
+/**
+ * Handle server selection from dropdown
+ */
+async function handleServerSelect(serverId: string): Promise<void> {
+  try {
+    const server = await window.electronAPI.getServer(serverId);
+    if (!server) {
+      showError('Server not found');
+      return;
+    }
+
+    // Check if server has saved password
+    const hasPassword = await window.electronAPI.serverHasPassword(serverId);
+    
+    if (hasPassword) {
+      // Connect directly with saved credentials
+      await connectToServer(server);
+    } else {
+      // Prompt for password
+      showPasswordPrompt(server);
+    }
+  } catch (err: any) {
+    showError(`Failed to select server: ${err.message}`);
+  }
+}
+
+/**
+ * Connect to a server
+ */
+async function connectToServer(server: ServerProfile, password?: string): Promise<void> {
+  updateConnectionStatus('connecting');
+  serverDropdown?.updateStatus('connecting');
+
+  try {
+    const result = await window.electronAPI.connectToServer(server.id, password);
+    
+    if (result.success) {
+      isSSHConnected = true;
+      currentServerId = server.id;
+      updateConnectionStatus('connected', `${server.username}@${server.host}`);
+      serverDropdown?.updateStatus('connected');
+      
+      // Focus terminal
+      terminalManager?.focus();
+    } else {
+      updateConnectionStatus('error');
+      serverDropdown?.updateStatus('disconnected');
+      showModalError('Connection Failed', result.error || 'Unknown error occurred');
+    }
+  } catch (err: any) {
+    updateConnectionStatus('error');
+    serverDropdown?.updateStatus('disconnected');
+    showModalError('Connection Failed', err.message || 'Failed to connect to server');
+  }
+}
+
+/**
+ * Handle disconnect
+ */
+async function handleDisconnect(): Promise<void> {
+  serverDropdown?.updateStatus('connecting');
+  
+  try {
+    await window.electronAPI.sshDisconnect();
+    isSSHConnected = false;
+    currentServerId = null;
+    updateConnectionStatus('local');
+    serverDropdown?.updateStatus('disconnected');
+    
+    // Focus terminal
+    terminalManager?.focus();
+  } catch (err: any) {
+    console.error('Disconnect error:', err);
+    showError(`Failed to disconnect: ${err.message}`);
+    serverDropdown?.updateStatus('disconnected');
+  }
+}
+
+/**
+ * Handle local terminal button
+ */
+async function handleLocalTerminal(): Promise<void> {
+  if (isSSHConnected) {
+    await handleDisconnect();
+  }
+}
+
+/**
+ * Handle connection lost
+ */
+function handleConnectionLost(): void {
+  isSSHConnected = false;
+  currentServerId = null;
+  updateConnectionStatus('local');
+  serverDropdown?.updateStatus('disconnected');
+  showError('SSH connection was lost');
+}
+
+/**
+ * Handle add server button
+ */
+function handleAddServer(): void {
+  serverModal?.showAdd();
+}
+
+/**
+ * Handle edit server button
+ */
+function handleEditServer(serverId: string): void {
+  serverModal?.showEdit(serverId);
+}
+
+/**
+ * Handle delete server button
+ */
+async function handleDeleteServer(serverId: string): Promise<void> {
+  // Show confirmation dialog
+  const confirmed = confirm('Are you sure you want to delete this server?');
+  if (!confirmed) return;
+
+  try {
+    await window.electronAPI.deleteServer(serverId);
+    
+    // If we were connected to this server, disconnect
+    if (currentServerId === serverId) {
+      await handleDisconnect();
+    }
+    
+    // Refresh server list
+    await serverDropdown?.refreshServers();
+  } catch (err: any) {
+    showError(`Failed to delete server: ${err.message}`);
+  }
+}
+
+/**
+ * Handle quick connect button
+ */
+function handleQuickConnect(): void {
+  const dialog = document.getElementById('quick-connect-dialog');
+  if (dialog) {
+    dialog.classList.remove('hidden');
+    const hostInput = document.getElementById('qc-host') as HTMLInputElement;
+    hostInput?.focus();
+  }
+}
+
+/**
+ * Handle server save from modal
+ */
+async function handleServerSave(data: ServerFormData, id?: string): Promise<void> {
+  try {
+    if (id) {
+      // Update existing server
+      await window.electronAPI.updateServer(id, data);
+      console.log('Server updated:', id);
+    } else {
+      // Create new server
+      const newServer = await window.electronAPI.createServer(data);
+      console.log('Server created:', newServer.id);
+    }
+    
+    // Refresh server list
+    await serverDropdown?.refreshServers();
+  } catch (err: any) {
+    console.error('Failed to save server:', err);
+    throw new Error(`Failed to save server: ${err.message}`);
+  }
+}
+
+/**
+ * Initialize quick connect dialog
+ */
+function initializeQuickConnectDialog(): void {
+  const dialog = document.getElementById('quick-connect-dialog');
+  const form = document.getElementById('quick-connect-form') as HTMLFormElement;
+  const closeBtn = dialog?.querySelector('.dialog-close');
+  const cancelBtn = document.getElementById('btn-qc-cancel');
+
+  if (!dialog || !form) {
+    console.error('Quick connect dialog elements not found');
+    return;
+  }
+
+  // Close dialog
+  const closeDialog = () => {
+    dialog.classList.add('hidden');
+    form.reset();
+  };
+
+  closeBtn?.addEventListener('click', closeDialog);
+  cancelBtn?.addEventListener('click', closeDialog);
+
+  // Close on overlay click
+  dialog.addEventListener('click', (e) => {
+    if (e.target === dialog) {
+      closeDialog();
+    }
+  });
+
+  // Handle form submit
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const host = (document.getElementById('qc-host') as HTMLInputElement).value;
+    const port = parseInt((document.getElementById('qc-port') as HTMLInputElement).value, 10);
+    const username = (document.getElementById('qc-username') as HTMLInputElement).value;
+    const password = (document.getElementById('qc-password') as HTMLInputElement).value;
+
+    // Create temporary server profile
+    const tempServer: ServerProfile = {
+      id: 'temp-' + Date.now(),
+      name: `${username}@${host}`,
+      description: '',
+      host,
+      port,
+      username,
+      authMethod: 'password' as const,
+      saveCredentials: false,
+      lastConnected: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+
+    closeDialog();
+    
+    // Connect with provided password
+    await connectToServer(tempServer, password);
+  });
+}
+
+/**
+ * Initialize password prompt dialog
+ */
+function initializePasswordPromptDialog(): void {
+  const dialog = document.getElementById('password-prompt-dialog');
+  const form = document.getElementById('password-prompt-form') as HTMLFormElement;
+  const closeBtn = dialog?.querySelector('.dialog-close');
+  const cancelBtn = document.getElementById('btn-pp-cancel');
+
+  if (!dialog || !form) {
+    console.error('Password prompt dialog elements not found');
+    return;
+  }
+
+  // Close dialog
+  const closeDialog = () => {
+    dialog.classList.add('hidden');
+    form.reset();
+    dialog.removeAttribute('data-server-id');
+  };
+
+  closeBtn?.addEventListener('click', closeDialog);
+  cancelBtn?.addEventListener('click', closeDialog);
+
+  // Close on overlay click
+  dialog.addEventListener('click', (e) => {
+    if (e.target === dialog) {
+      closeDialog();
+    }
+  });
+
+  // Handle form submit
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const serverId = dialog.getAttribute('data-server-id');
+    const password = (document.getElementById('pp-password') as HTMLInputElement).value;
+
+    if (!serverId) return;
+
+    try {
+      const server = await window.electronAPI.getServer(serverId);
+      if (!server) {
+        showError('Server not found');
+        return;
+      }
+
+      closeDialog();
+      
+      // Connect with provided password
+      await connectToServer(server, password);
+    } catch (err: any) {
+      showError(`Failed to connect: ${err.message}`);
+    }
+  });
+}
+
+/**
+ * Show password prompt for a server
+ */
+function showPasswordPrompt(server: ServerProfile): void {
+  const dialog = document.getElementById('password-prompt-dialog');
+  const labelElement = document.getElementById('pp-server-label');
+  
+  if (!dialog) return;
+
+  // Set server info
+  dialog.setAttribute('data-server-id', server.id);
+  if (labelElement) {
+    labelElement.textContent = `${server.name || server.host}`;
+  }
+
+  // Show dialog
+  dialog.classList.remove('hidden');
+  
+  // Focus password input
+  const passwordInput = document.getElementById('pp-password') as HTMLInputElement;
+  passwordInput?.focus();
+}
+
+/**
+ * Show modal error dialog
+ */
+function showModalError(title: string, message: string): void {
+  // Create a simple modal error overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+  
+  const dialog = document.createElement('div');
+  dialog.className = 'modal-dialog';
+  dialog.style.cssText = 'background: var(--bg-secondary); border-radius: 8px; padding: 24px; max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);';
+  
+  const titleEl = document.createElement('h3');
+  titleEl.textContent = title;
+  titleEl.style.cssText = 'margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px;';
+  
+  const messageEl = document.createElement('p');
+  messageEl.textContent = message;
+  messageEl.style.cssText = 'margin: 0 0 20px 0; color: var(--text-secondary); font-size: 14px; line-height: 1.5;';
+  
+  const okBtn = document.createElement('button');
+  okBtn.textContent = 'OK';
+  okBtn.className = 'btn btn-primary';
+  okBtn.style.cssText = 'width: 100%; padding: 8px; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;';
+  okBtn.onclick = () => overlay.remove();
+  
+  dialog.appendChild(titleEl);
+  dialog.appendChild(messageEl);
+  dialog.appendChild(okBtn);
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+  
+  // Close on overlay click
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+    }
+  });
+  
+  // Close on Escape
+  const escHandler = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+  
+  // Focus OK button
+  okBtn.focus();
+}
+
+/**
+ * Show error message (simple alert fallback)
+ */
+function showError(message: string): void {
+  showModalError('Error', message);
+}
+
+/**
+ * Helper function to update connection status badge
+ */
+function updateConnectionStatus(status: string, label?: string): void {
+  const connectionBadge = document.getElementById('connection-badge');
+  const connectionLabel = document.getElementById('connection-label');
+  
+  if (!connectionBadge || !connectionLabel) return;
+
+  // Remove all status classes
+  connectionBadge.classList.remove('local', 'connecting', 'connected', 'error');
+  
+  // Add new status class
+  connectionBadge.classList.add(status);
+  
+  // Update label
+  switch (status) {
+    case 'local':
+      connectionLabel.textContent = 'Local';
+      break;
+    case 'connecting':
+      connectionLabel.textContent = 'Connecting...';
+      break;
+    case 'connected':
+      connectionLabel.textContent = label || 'Connected';
+      break;
+    case 'error':
+      connectionLabel.textContent = 'Error';
+      break;
+  }
+}
+
+/**
+ * Handle page unload for cleanup
+ */
+function cleanup(): void {
+  terminalManager?.dispose();
+  layoutManager?.dispose();
+  window.electronAPI.removeAllListeners('terminal:data');
+}
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', initializeApp);
+
+// Cleanup on unload
+window.addEventListener('beforeunload', cleanup);
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\terminal.d.ts =====
+
+/**
+ * Terminal Manager
+ * Wrapper class for xterm.js with addons and configuration
+ */
+export interface TerminalManagerConfig {
+    container: HTMLElement;
+    onData: (data: string) => void;
+    onResize: (cols: number, rows: number) => void;
+}
+export declare class TerminalManager {
+    private terminal;
+    private fitAddon;
+    private webLinksAddon;
+    private container;
+    private config;
+    private resizeObserver;
+    private resizeTimeout;
+    constructor(config: TerminalManagerConfig);
+    /**
+     * Initialize and open the terminal
+     */
+    initialize(): void;
+    /**
+     * Set up ResizeObserver to handle container size changes
+     */
+    private setupResizeObserver;
+    /**
+     * Debounced fit to prevent excessive resize calls
+     */
+    private debouncedFit;
+    /**
+     * Fit terminal to container size
+     */
+    fit(): void;
+    /**
+     * Get current terminal dimensions
+     */
+    getDimensions(): {
+        cols: number;
+        rows: number;
+    };
+    /**
+     * Write data to terminal display
+     */
+    write(data: string): void;
+    /**
+     * Write a line to terminal (adds newline)
+     */
+    writeLine(data: string): void;
+    /**
+     * Clear the terminal
+     */
+    clear(): void;
+    /**
+     * Focus the terminal
+     */
+    focus(): void;
+    /**
+     * Blur the terminal
+     */
+    blur(): void;
+    /**
+     * Scroll to bottom
+     */
+    scrollToBottom(): void;
+    /**
+     * Select all text in terminal
+     */
+    selectAll(): void;
+    /**
+     * Get selected text
+     */
+    getSelection(): string;
+    /**
+     * Check if terminal has focus
+     */
+    hasFocus(): boolean;
+    /**
+     * Dispose of terminal and cleanup
+     */
+    dispose(): void;
+}
+//# sourceMappingURL=terminal.d.ts.map
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\renderer\terminal.ts =====
+
+/**
+ * Terminal Manager
+ * Wrapper class for xterm.js with addons and configuration
+ */
+
+import { Terminal } from 'xterm';
+import { FitAddon } from 'xterm-addon-fit';
+import { WebLinksAddon } from 'xterm-addon-web-links';
+
+// VS Code Dark+ inspired theme
+const TERMINAL_THEME = {
+  background: '#1e1e1e',
+  foreground: '#d4d4d4',
+  cursor: '#d4d4d4',
+  cursorAccent: '#1e1e1e',
+  selectionBackground: '#264f78',
+  selectionForeground: '#ffffff',
+  selectionInactiveBackground: '#3a3d41',
+  
+  // ANSI Colors
+  black: '#000000',
+  red: '#cd3131',
+  green: '#0dbc79',
+  yellow: '#e5e510',
+  blue: '#2472c8',
+  magenta: '#bc3fbc',
+  cyan: '#11a8cd',
+  white: '#e5e5e5',
+  
+  // Bright ANSI Colors
+  brightBlack: '#666666',
+  brightRed: '#f14c4c',
+  brightGreen: '#23d18b',
+  brightYellow: '#f5f543',
+  brightBlue: '#3b8eea',
+  brightMagenta: '#d670d6',
+  brightCyan: '#29b8db',
+  brightWhite: '#ffffff'
+};
+
+// Terminal configuration
+const TERMINAL_OPTIONS = {
+  theme: TERMINAL_THEME,
+  fontFamily: '"Cascadia Code", "Fira Code", Consolas, "Courier New", monospace',
+  fontSize: 14,
+  fontWeight: '400' as const, 
+  fontWeightBold: '600' as const,
+  lineHeight: 1.2,
+  letterSpacing: 0,
+  cursorBlink: true,
+  cursorStyle: 'block' as const,
+  cursorWidth: 1,
+  scrollback: 10000,
+  tabStopWidth: 4,
+  bellStyle: 'none' as const,
+  allowProposedApi: true,
+  allowTransparency: false,
+  convertEol: true,
+  scrollOnUserInput: true,
+  screenReaderMode: false,
+  macOptionIsMeta: false,
+  macOptionClickForcesSelection: false,
+  minimumContrastRatio: 1,
+  drawBoldTextInBrightColors: true
+};
+
+export interface TerminalManagerConfig {
+  container: HTMLElement;
+  onData: (data: string) => void;
+  onResize: (cols: number, rows: number) => void;
+}
+
+export class TerminalManager {
+  private terminal: Terminal;
+  private fitAddon: FitAddon;
+  private webLinksAddon: WebLinksAddon;
+  private container: HTMLElement;
+  private config: TerminalManagerConfig;
+  private resizeObserver: ResizeObserver | null = null;
+  private resizeTimeout: NodeJS.Timeout | null = null;
+
+  constructor(config: TerminalManagerConfig) {
+    this.config = config;
+    this.container = config.container;
+
+    // Initialize terminal with options
+    this.terminal = new Terminal(TERMINAL_OPTIONS);
+
+    // Initialize addons
+    this.fitAddon = new FitAddon();
+    this.webLinksAddon = new WebLinksAddon();
+
+    // Load addons
+    this.terminal.loadAddon(this.fitAddon);
+    this.terminal.loadAddon(this.webLinksAddon);
+  }
+
+  /**
+   * Initialize and open the terminal
+   */
+  initialize(): void {
+    // Open terminal in container
+    this.terminal.open(this.container);
+
+    // Set up data handler (user input)
+    this.terminal.onData((data: string) => {
+      this.config.onData(data);
+    });
+
+    // Set up resize handler
+    this.terminal.onResize(({ cols, rows }) => {
+      this.config.onResize(cols, rows);
+    });
+
+    // Initial fit
+    this.fit();
+
+    // Set up resize observer for container
+    this.setupResizeObserver();
+
+    // Focus terminal
+    this.focus();
+
+    console.log('Terminal initialized');
+  }
+
+  /**
+   * Set up ResizeObserver to handle container size changes
+   */
+  private setupResizeObserver(): void {
+    this.resizeObserver = new ResizeObserver(() => {
+      this.debouncedFit();
+    });
+    this.resizeObserver.observe(this.container);
+  }
+
+  /**
+   * Debounced fit to prevent excessive resize calls
+   */
+  private debouncedFit(): void {
+    if (this.resizeTimeout) {
+      clearTimeout(this.resizeTimeout);
+    }
+    this.resizeTimeout = setTimeout(() => {
+      this.fit();
+    }, 50);
+  }
+
+  /**
+   * Fit terminal to container size
+   */
+  fit(): void {
+    try {
+      this.fitAddon.fit();
+      const dimensions = this.getDimensions();
+      console.log(`Terminal fit to ${dimensions.cols}x${dimensions.rows}`);
+    } catch (error) {
+      console.error('Failed to fit terminal:', error);
+    }
+  }
+
+  /**
+   * Get current terminal dimensions
+   */
+  getDimensions(): { cols: number; rows: number } {
+    return {
+      cols: this.terminal.cols,
+      rows: this.terminal.rows
+    };
+  }
+
+  /**
+   * Write data to terminal display
+   */
+  write(data: string): void {
+    this.terminal.write(data);
+  }
+
+  /**
+   * Write a line to terminal (adds newline)
+   */
+  writeLine(data: string): void {
+    this.terminal.writeln(data);
+  }
+
+  /**
+   * Clear the terminal
+   */
+  clear(): void {
+    this.terminal.clear();
+  }
+
+  /**
+   * Focus the terminal
+   */
+  focus(): void {
+    this.terminal.focus();
+  }
+
+  /**
+   * Blur the terminal
+   */
+  blur(): void {
+    this.terminal.blur();
+  }
+
+  /**
+   * Scroll to bottom
+   */
+  scrollToBottom(): void {
+    this.terminal.scrollToBottom();
+  }
+
+  /**
+   * Select all text in terminal
+   */
+  selectAll(): void {
+    this.terminal.selectAll();
+  }
+
+  /**
+   * Get selected text
+   */
+  getSelection(): string {
+    return this.terminal.getSelection();
+  }
+
+  /**
+   * Check if terminal has focus
+   */
+  hasFocus(): boolean {
+    return document.activeElement === this.terminal.textarea;
+  }
+
+  /**
+   * Dispose of terminal and cleanup
+   */
+  dispose(): void {
+    if (this.resizeTimeout) {
+      clearTimeout(this.resizeTimeout);
+    }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+    this.terminal.dispose();
+    console.log('Terminal disposed');
+  }
+}
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\shared\types.d.ts =====
+
+/**
+ * Shared TypeScript interfaces and types
+ * Used by both main and renderer processes
+ */
+export interface TerminalDimensions {
+    cols: number;
+    rows: number;
+}
+export interface WindowState {
+    width: number;
+    height: number;
+    x?: number;
+    y?: number;
+    isMaximized: boolean;
+}
+export interface LayoutConfig {
+    terminalPanelWidth: number;
+}
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export declare const IPC_CHANNELS: {
+    readonly TERMINAL_DATA: "terminal:data";
+    readonly TERMINAL_INPUT: "terminal:input";
+    readonly TERMINAL_RESIZE: "terminal:resize";
+    readonly TERMINAL_READY: "terminal:ready";
+    readonly WINDOW_MINIMIZE: "window:minimize";
+    readonly WINDOW_MAXIMIZE: "window:maximize";
+    readonly WINDOW_CLOSE: "window:close";
+    readonly WINDOW_IS_MAXIMIZED: "window:is-maximized";
+};
+export interface ElectronAPI {
+    sendTerminalInput: (data: string) => void;
+    onTerminalData: (callback: (data: string) => void) => void;
+    resizeTerminal: (cols: number, rows: number) => void;
+    minimizeWindow: () => void;
+    maximizeWindow: () => void;
+    closeWindow: () => void;
+    isMaximized: () => Promise<boolean>;
+    getPlatform: () => NodeJS.Platform;
+    removeAllListeners: (channel: string) => void;
+}
+declare global {
+    interface Window {
+        electronAPI: ElectronAPI;
+    }
+}
+//# sourceMappingURL=types.d.ts.map
+
+
+===== C:\Users\mike_\onedrive\Documents\AI_Pi_Helper_v01\src\shared\types.ts =====
+
+/**
+ * Shared TypeScript interfaces and types
+ * Used by both main and renderer processes
+ */
+
+// Terminal resize dimensions
+export interface TerminalDimensions {
+  cols: number;
+  rows: number;
+}
+
+// Window state for persistence
+export interface WindowState {
+  width: number;
+  height: number;
+  x?: number;
+  y?: number;
+  isMaximized: boolean;
+}
+
+// Layout configuration
+export interface LayoutConfig {
+  terminalPanelWidth: number; // percentage (0-100)
+}
+
+// Connection status for future SSH implementation
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+// ============== SERVER TYPES ==============
+
+/**
+ * Authentication method
+ */
+export type AuthMethod = 'password' | 'key';
+
+/**
+ * Server profile stored in electron-store
+ * Note: Password is NOT stored here - it goes in credential-store
+ */
+export interface ServerProfile {
+  id: string;
+  name: string;
+  description: string;
+  host: string;
+  port: number;
+  username: string;
+  authMethod: AuthMethod;
+  privateKeyPath?: string;        // Future: SSH key support
+  saveCredentials: boolean;
+  lastConnected: number | null;   // Timestamp
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Data for creating/updating a server
+ */
+export interface ServerFormData {
+  name: string;
+  description: string;
+  host: string;
+  port: number;
+  username: string;
+  authMethod: AuthMethod;
+  password?: string;
+  privateKeyPath?: string;
+  saveCredentials: boolean;
+}
+
+/**
+ * Server list item for display (subset of ServerProfile)
+ */
+export interface ServerListItem {
+  id: string;
+  name: string;
+  description: string;
+  host: string;
+  username: string;
+  lastConnected: number | null;
+  hasStoredPassword: boolean;
+}
+
+/**
+ * Quick connect data (not saved)
+ */
+export interface QuickConnectData {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+}
+
+/**
+ * Result from SSH connection attempt
+ */
+export interface SSHConnectionResult {
+  success: boolean;
+  error?: string;
+  serverId?: string;
+}
+
+// IPC channel names as constants to prevent typos
+export const IPC_CHANNELS = {
+  // Terminal
+  TERMINAL_DATA: 'terminal:data',
+  TERMINAL_INPUT: 'terminal:input',
+  TERMINAL_RESIZE: 'terminal:resize',
+  TERMINAL_READY: 'terminal:ready',
+  
+  // Window controls
+  WINDOW_MINIMIZE: 'window:minimize',
+  WINDOW_MAXIMIZE: 'window:maximize',
+  WINDOW_CLOSE: 'window:close',
+  WINDOW_IS_MAXIMIZED: 'window:is-maximized',
+
+  // SSH (from Phase 2A)
+  SSH_CONNECT: 'ssh:connect',
+  SSH_DISCONNECT: 'ssh:disconnect',
+  SSH_STATUS: 'ssh:status',
+
+  // Server management
+  SERVER_LIST: 'server:list',
+  SERVER_GET: 'server:get',
+  SERVER_CREATE: 'server:create',
+  SERVER_UPDATE: 'server:update',
+  SERVER_DELETE: 'server:delete',
+  SERVER_CONNECT: 'server:connect',
+  SERVER_HAS_PASSWORD: 'server:has-password',
+  SERVER_TEST_CONNECTION: 'server:test-connection',
+} as const;
+
+// Electron API exposed to renderer via preload
+export interface ElectronAPI {
+  // Terminal operations
+  sendTerminalInput: (data: string) => void;
+  onTerminalData: (callback: (data: string) => void) => void;
+  resizeTerminal: (cols: number, rows: number) => void;
+  
+  // Window controls
+  minimizeWindow: () => void;
+  maximizeWindow: () => void;
+  closeWindow: () => void;
+  isMaximized: () => Promise<boolean>;
+  
+  // SSH connection
+  sshConnect: (config: { 
+    host: string; 
+    port: number; 
+    username: string; 
+    password: string 
+  }) => Promise<{ success: boolean; error?: string }>;
+  sshDisconnect: () => Promise<{ success: boolean }>;
+  sshGetStatus: () => Promise<{ 
+    isConnected: boolean; 
+    status: string;
+    connectionInfo?: { host: string; username: string } | null 
+  }>;
+  onSSHStatus: (callback: (data: { status: string; message?: string }) => void) => void;
+  
+  // Server management
+  getServers: () => Promise<ServerListItem[]>;
+  getServer: (id: string) => Promise<ServerProfile | null>;
+  createServer: (data: ServerFormData) => Promise<ServerProfile>;
+  updateServer: (id: string, data: Partial<ServerFormData>) => Promise<ServerProfile | null>;
+  deleteServer: (id: string) => Promise<boolean>;
+  connectToServer: (id: string, password?: string) => Promise<SSHConnectionResult>;
+  serverHasPassword: (id: string) => Promise<boolean>;
+  testConnection: (config: { host: string; port: number; username: string; password: string }) => Promise<{ success: boolean; error?: string }>;
+  
+  // Utility
+  getPlatform: () => NodeJS.Platform;
+  
+  // Cleanup
+  removeAllListeners: (channel: string) => void;
+}
+
+// Extend Window interface to include our API
+declare global {
+  interface Window {
+    electronAPI: ElectronAPI;
+  }
+}
