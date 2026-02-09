@@ -18,6 +18,7 @@ export declare class LayoutManager {
     private isDragging;
     private startX;
     private startLeftWidth;
+    private boundMouseDown;
     private boundMouseMove;
     private boundMouseUp;
     private boundWindowResize;

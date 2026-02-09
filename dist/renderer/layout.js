@@ -18,6 +18,7 @@ class LayoutManager {
         this.minPanelWidth = config.minPanelWidth;
         this.onResize = config.onResize;
         // Bind methods once in constructor
+        this.boundMouseDown = this.onMouseDown.bind(this);
         this.boundMouseMove = this.onMouseMove.bind(this);
         this.boundMouseUp = this.onMouseUp.bind(this);
         this.boundWindowResize = this.onWindowResize.bind(this);
@@ -34,9 +35,8 @@ class LayoutManager {
      * Set up mouse event listeners for drag handling
      */
     setupEventListeners() {
-        // Mouse down on handle starts drag
-        this.handle.addEventListener('mousedown', this.onMouseDown.bind(this));
         // Use stored bound references
+        this.handle.addEventListener('mousedown', this.boundMouseDown);
         document.addEventListener('mousemove', this.boundMouseMove);
         document.addEventListener('mouseup', this.boundMouseUp);
         window.addEventListener('resize', this.boundWindowResize);
@@ -110,9 +110,8 @@ class LayoutManager {
      * Set the left panel width in pixels
      */
     setLeftPanelWidth(width) {
-        this.leftPanel.style.width = `${width}px`;
-        this.leftPanel.style.flexGrow = '0';
-        this.leftPanel.style.flexShrink = '0';
+        // Use flex shorthand to override all flex properties including flex-basis
+        this.leftPanel.style.flex = `0 0 ${width}px`;
     }
     /**
      * Reset layout to default
