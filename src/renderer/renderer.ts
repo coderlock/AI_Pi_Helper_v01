@@ -7,6 +7,7 @@ import { TerminalManager } from './terminal';
 import { LayoutManager } from './layout';
 import { ServerDropdown } from './components/server-dropdown';
 import { ServerModal } from './components/server-modal';
+import { ChatContainer } from './components/chat-container';
 import type { ServerProfile, ServerFormData } from '../shared/types';
 
 // Import xterm.js CSS
@@ -17,13 +18,14 @@ let terminalManager: TerminalManager | null = null;
 let layoutManager: LayoutManager | null = null;
 let serverDropdown: ServerDropdown | null = null;
 let serverModal: ServerModal | null = null;
+let chatContainer: ChatContainer | null = null;
 let isSSHConnected = false;
 let currentServerId: string | null = null;
 
 /**
  * Initialize the application
  */
-function initializeApp(): void {
+async function initializeApp(): Promise<void> {
   console.log('Initializing Pi Assistant...');
 
   // Initialize layout
@@ -40,6 +42,9 @@ function initializeApp(): void {
 
   // Initialize server management UI
   initializeServerManagement();
+
+  // Initialize chat UI
+  await initializeChat();
 
   console.log('Pi Assistant initialized successfully');
 }
@@ -755,10 +760,67 @@ function cleanup(): void {
   terminalManager?.dispose();
   layoutManager?.dispose();
   window.electronAPI.removeAllListeners('terminal:data');
+  // Chat doesn't need explicit cleanup - messages are persisted
+}
+
+/**
+ * Initialize chat UI
+ */
+async function initializeChat(): Promise<void> {
+  const container = document.getElementById('chat-container');
+  
+  if (!container) {
+    console.error('Chat container not found');
+    return;
+  }
+
+  chatContainer = new ChatContainer({
+    container,
+    onSendMessage: (message) => {
+      console.log('Message sent:', message);
+      // Phase 4 will handle actual LLM calls
+    }
+  });
+
+  await chatContainer.initialize();
+  
+  // Update model badge when provider changes
+  updateModelBadge();
+
+  console.log('Chat initialized');
+}
+
+/**
+ * Update model badge display
+ */
+function updateModelBadge(): void {
+  const badge = document.getElementById('model-badge');
+  if (!badge || !chatContainer) return;
+
+  const provider = chatContainer.getSelectedProvider();
+  
+  switch (provider) {
+    case 'claude':
+      badge.textContent = 'Claude';
+      badge.style.backgroundColor = 'var(--accent-primary)';
+      break;
+    case 'openai':
+      badge.textContent = 'GPT-4';
+      badge.style.backgroundColor = '#10a37f';
+      break;
+    case 'moonshot':
+      badge.textContent = 'Moonshot';
+      badge.style.backgroundColor = '#6366f1';
+      break;
+  }
 }
 
 // Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', initializeApp);
+document.addEventListener('DOMContentLoaded', () => {
+  initializeApp().catch(err => {
+    console.error('Failed to initialize app:', err);
+  });
+});
 
 // Cleanup on unload
 window.addEventListener('beforeunload', cleanup);

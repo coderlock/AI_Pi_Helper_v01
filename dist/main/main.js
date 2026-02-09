@@ -44,12 +44,14 @@ const types_1 = require("../shared/types");
 const ssh_manager_1 = require("./ssh-manager");
 const credential_store_1 = require("./store/credential-store");
 const server_store_1 = require("./store/server-store");
+const chat_store_1 = require("./store/chat-store");
 let mainWindow = null;
 let ptyManager = null;
 let sshManager = null;
 let isSSHActive = false;
 let credentialStore;
 let serverStore;
+let chatStore;
 /**
  * Create the main application window
  */
@@ -122,6 +124,7 @@ function initializeSSHManager() {
 function initializeStores() {
     credentialStore = new credential_store_1.CredentialStore();
     serverStore = new server_store_1.ServerStore(credentialStore);
+    chatStore = new chat_store_1.ChatStore();
     console.log('Stores initialized');
     console.log(`Secure storage available: ${credentialStore.isAvailable()}`);
 }
@@ -316,6 +319,43 @@ function setupIpcHandlers() {
             testManager.disconnect();
             return { success: false, error: error.message };
         }
+    });
+    // ============== CHAT HANDLERS ==============
+    // Get messages
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.CHAT_GET_MESSAGES, (_, sessionId) => {
+        return chatStore.getMessages(sessionId);
+    });
+    // Add message
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.CHAT_ADD_MESSAGE, (_, message, sessionId) => {
+        return chatStore.addMessage(message, sessionId);
+    });
+    // Clear history
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.CHAT_CLEAR_HISTORY, (_, sessionId) => {
+        chatStore.clearHistory(sessionId);
+    });
+    // Get settings
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.CHAT_GET_SETTINGS, () => {
+        return chatStore.getSettings();
+    });
+    // Update settings
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.CHAT_UPDATE_SETTINGS, (_, settings) => {
+        return chatStore.updateSettings(settings);
+    });
+    // Get all sessions
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.CHAT_GET_SESSIONS, () => {
+        return chatStore.getSessions();
+    });
+    // Get single session
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.CHAT_GET_SESSION, (_, sessionId) => {
+        return chatStore.getSession(sessionId);
+    });
+    // Create session
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.CHAT_CREATE_SESSION, (_, provider) => {
+        return chatStore.createSession(provider);
+    });
+    // Delete session
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.CHAT_DELETE_SESSION, (_, sessionId) => {
+        return chatStore.deleteSession(sessionId);
     });
 }
 /**

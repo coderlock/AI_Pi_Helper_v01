@@ -82,6 +82,58 @@ export interface SSHConnectionResult {
     error?: string;
     serverId?: string;
 }
+/**
+ * LLM Provider options
+ */
+export type LLMProvider = 'claude' | 'openai' | 'moonshot';
+/**
+ * Chat message role
+ */
+export type MessageRole = 'user' | 'assistant' | 'system';
+/**
+ * Single chat message
+ */
+export interface ChatMessage {
+    id: string;
+    role: MessageRole;
+    content: string;
+    timestamp: number;
+    provider?: LLMProvider;
+    isError?: boolean;
+    metadata?: {
+        model?: string;
+        tokens?: number;
+    };
+}
+/**
+ * Chat session/conversation
+ */
+export interface ChatSession {
+    id: string;
+    title: string;
+    messages: ChatMessage[];
+    provider: LLMProvider;
+    createdAt: number;
+    updatedAt: number;
+}
+/**
+ * Chat settings stored in electron-store
+ */
+export interface ChatSettings {
+    selectedProvider: LLMProvider;
+    maxHistoryMessages: number;
+    autoScroll: boolean;
+}
+/**
+ * Provider configuration (API keys stored separately in credential-store)
+ */
+export interface ProviderConfig {
+    provider: LLMProvider;
+    displayName: string;
+    models: string[];
+    defaultModel: string;
+    isConfigured: boolean;
+}
 export declare const IPC_CHANNELS: {
     readonly TERMINAL_DATA: "terminal:data";
     readonly TERMINAL_INPUT: "terminal:input";
@@ -102,6 +154,15 @@ export declare const IPC_CHANNELS: {
     readonly SERVER_CONNECT: "server:connect";
     readonly SERVER_HAS_PASSWORD: "server:has-password";
     readonly SERVER_TEST_CONNECTION: "server:test-connection";
+    readonly CHAT_GET_MESSAGES: "chat:get-messages";
+    readonly CHAT_ADD_MESSAGE: "chat:add-message";
+    readonly CHAT_CLEAR_HISTORY: "chat:clear-history";
+    readonly CHAT_GET_SETTINGS: "chat:get-settings";
+    readonly CHAT_UPDATE_SETTINGS: "chat:update-settings";
+    readonly CHAT_GET_SESSIONS: "chat:get-sessions";
+    readonly CHAT_GET_SESSION: "chat:get-session";
+    readonly CHAT_CREATE_SESSION: "chat:create-session";
+    readonly CHAT_DELETE_SESSION: "chat:delete-session";
 };
 export interface ElectronAPI {
     sendTerminalInput: (data: string) => void;
@@ -151,6 +212,15 @@ export interface ElectronAPI {
         success: boolean;
         error?: string;
     }>;
+    getChatMessages: (sessionId?: string) => Promise<ChatMessage[]>;
+    addChatMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>, sessionId?: string) => Promise<ChatMessage>;
+    clearChatHistory: (sessionId?: string) => Promise<void>;
+    getChatSettings: () => Promise<ChatSettings>;
+    updateChatSettings: (settings: Partial<ChatSettings>) => Promise<ChatSettings>;
+    getChatSessions: () => Promise<ChatSession[]>;
+    getChatSession: (sessionId: string) => Promise<ChatSession | null>;
+    createChatSession: (provider?: LLMProvider) => Promise<ChatSession>;
+    deleteChatSession: (sessionId: string) => Promise<boolean>;
     getPlatform: () => NodeJS.Platform;
     removeAllListeners: (channel: string) => void;
 }

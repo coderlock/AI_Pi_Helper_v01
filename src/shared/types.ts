@@ -99,6 +99,66 @@ export interface SSHConnectionResult {
   serverId?: string;
 }
 
+// ============== CHAT TYPES ==============
+
+/**
+ * LLM Provider options
+ */
+export type LLMProvider = 'claude' | 'openai' | 'moonshot';
+
+/**
+ * Chat message role
+ */
+export type MessageRole = 'user' | 'assistant' | 'system';
+
+/**
+ * Single chat message
+ */
+export interface ChatMessage {
+  id: string;
+  role: MessageRole;
+  content: string;
+  timestamp: number;
+  provider?: LLMProvider;      // Which LLM generated this (for assistant messages)
+  isError?: boolean;           // True if this is an error message
+  metadata?: {
+    model?: string;            // e.g., "claude-3-sonnet", "gpt-4"
+    tokens?: number;           // Token count if available
+  };
+}
+
+/**
+ * Chat session/conversation
+ */
+export interface ChatSession {
+  id: string;
+  title: string;              // Auto-generated or user-set
+  messages: ChatMessage[];
+  provider: LLMProvider;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Chat settings stored in electron-store
+ */
+export interface ChatSettings {
+  selectedProvider: LLMProvider;
+  maxHistoryMessages: number;  // How many messages to keep in memory
+  autoScroll: boolean;
+}
+
+/**
+ * Provider configuration (API keys stored separately in credential-store)
+ */
+export interface ProviderConfig {
+  provider: LLMProvider;
+  displayName: string;
+  models: string[];
+  defaultModel: string;
+  isConfigured: boolean;       // Has API key
+}
+
 // IPC channel names as constants to prevent typos
 export const IPC_CHANNELS = {
   // Terminal
@@ -127,6 +187,17 @@ export const IPC_CHANNELS = {
   SERVER_CONNECT: 'server:connect',
   SERVER_HAS_PASSWORD: 'server:has-password',
   SERVER_TEST_CONNECTION: 'server:test-connection',
+
+  // Chat
+  CHAT_GET_MESSAGES: 'chat:get-messages',
+  CHAT_ADD_MESSAGE: 'chat:add-message',
+  CHAT_CLEAR_HISTORY: 'chat:clear-history',
+  CHAT_GET_SETTINGS: 'chat:get-settings',
+  CHAT_UPDATE_SETTINGS: 'chat:update-settings',
+  CHAT_GET_SESSIONS: 'chat:get-sessions',
+  CHAT_GET_SESSION: 'chat:get-session',
+  CHAT_CREATE_SESSION: 'chat:create-session',
+  CHAT_DELETE_SESSION: 'chat:delete-session',
 } as const;
 
 // Electron API exposed to renderer via preload
@@ -167,6 +238,17 @@ export interface ElectronAPI {
   serverHasPassword: (id: string) => Promise<boolean>;
   testConnection: (config: { host: string; port: number; username: string; password: string }) => Promise<{ success: boolean; error?: string }>;
   
+  // Chat
+  getChatMessages: (sessionId?: string) => Promise<ChatMessage[]>;
+  addChatMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>, sessionId?: string) => Promise<ChatMessage>;
+  clearChatHistory: (sessionId?: string) => Promise<void>;
+  getChatSettings: () => Promise<ChatSettings>;
+  updateChatSettings: (settings: Partial<ChatSettings>) => Promise<ChatSettings>;
+  getChatSessions: () => Promise<ChatSession[]>;
+  getChatSession: (sessionId: string) => Promise<ChatSession | null>;
+  createChatSession: (provider?: LLMProvider) => Promise<ChatSession>;
+  deleteChatSession: (sessionId: string) => Promise<boolean>;
+
   // Utility
   getPlatform: () => NodeJS.Platform;
   

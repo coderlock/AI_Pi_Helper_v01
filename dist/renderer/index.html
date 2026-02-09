@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="styles/layout.css">
     <link rel="stylesheet" href="styles/terminal.css">
     <link rel="stylesheet" href="styles/components.css">
+    <link rel="stylesheet" href="styles/chat.css">
 </head>
 <body>
     <!-- Custom Title Bar -->
@@ -64,37 +65,18 @@
             <div class="resize-handle-line"></div>
         </div>
 
-        <!-- Right Panel: AI Chat (Placeholder) -->
+        <!-- Right Panel: AI Chat -->
         <section id="chat-panel" class="panel">
             <div class="panel-header">
                 <div class="panel-header-left">
                     <span class="panel-title">AI Assistant</span>
                 </div>
                 <div class="panel-header-right">
-                    <span class="model-badge">Claude 3.5 Sonnet</span>
+                    <span id="model-badge" class="model-badge">Claude</span>
                 </div>
             </div>
-            <div id="chat-container">
-                <div class="chat-placeholder">
-                    <div class="placeholder-icon">🤖</div>
-                    <h2>AI Assistant</h2>
-                    <p>Chat functionality will be implemented in Phase 4.</p>
-                    <p class="placeholder-hint">For now, use the terminal on the left to interact with your system.</p>
-                </div>
-            </div>
-            <!-- Chat input placeholder -->
-            <div id="chat-input-container" class="disabled">
-                <textarea 
-                    id="chat-input" 
-                    placeholder="Ask the AI assistant... (Coming in Phase 4)"
-                    disabled
-                ></textarea>
-                <button id="send-btn" class="send-button" disabled>
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M1 8L15 1L8 15L7 9L1 8Z"/>
-                    </svg>
-                </button>
-            </div>
+            <!-- Chat container will be populated by JavaScript -->
+            <div id="chat-container" class="chat-panel-content"></div>
         </section>
     </main>
 

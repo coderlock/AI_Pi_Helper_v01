@@ -1099,4 +1099,819 @@ export class ChatContainer {
     }
   }
 
+
+  /**
+   * Handle sending a message
+   */
+  private async handleSendMessage(content: string): Promise<void> {
+    if (this.isLoading || !content.trim()) return;
+
+    try {
+      // Add user message
+      const userMessage = await window.electronAPI.addChatMessage({
+        role: 'user',
+        content: content.trim()
+      });
+
+      this.messages.push(userMessage);
+      this.renderMessages();
+
+      // Show loading state
+      this.setLoading(true);
+
+      // Phase 4 will add actual LLM call here
+      // For now, add a placeholder response
+      await this.addPlaceholderResponse();
+
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      this.showError('Failed to send message. Please try again.');
+    } finally {
+      this.setLoading(false);
+    }
+  }
+
+  /**
+   * Add placeholder response (Phase 4 will replace with real LLM call)
+   */
+  private async addPlaceholderResponse(): Promise<void> {
+    // Simulate typing delay
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const placeholderResponses = [
+      "I'm a placeholder response! LLM integration is coming in Phase 4. Once connected, I'll be able to help you manage your Raspberry Pi, run commands, and troubleshoot issues.",
+      "This is where the AI response will appear. In Phase 4, I'll connect to Claude, GPT-4, or Moonshot to provide real assistance.",
+      "🚧 LLM integration pending! Soon I'll be able to execute commands on your Pi and help with system administration tasks.",
+      "Hello! I'm currently in demo mode. Phase 4 will enable me to actually help you with your Raspberry Pi questions and tasks."
+    ];
+
+    const randomResponse = placeholderResponses[Math.floor(Math.random() * placeholderResponses.length)];
+
+    const assistantMessage = await window.electronAPI.addChatMessage({
+      role: 'assistant',
+      content: randomResponse,
+      provider: this.settings.selectedProvider
+    });
+
+    this.messages.push(assistantMessage);
+    this.renderMessages();
+  }
+
+  /**
+   * Set loading state
+   */
+  private setLoading(loading: boolean): void {
+    this.isLoading = loading;
+    this.chatInput.disabled = loading;
+
+    if (loading) {
+      // Add loading indicator
+      const loadingEl = document.createElement('div');
+      loadingEl.className = 'chat-message assistant loading';
+      loadingEl.id = 'loading-indicator';
+      loadingEl.innerHTML = `
+        <div class="message-avatar">🤖</div>
+        <div class="message-content-wrapper">
+          <div class="message-content">
+            <span class="typing-indicator">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </span>
+          </div>
+        </div>
+      `;
+      this.messagesContainer.appendChild(loadingEl);
+      this.scrollToBottom();
+    } else {
+      // Remove loading indicator
+      const loadingEl = document.getElementById('loading-indicator');
+      loadingEl?.remove();
+    }
+  }
+
+  /**
+   * Show error message
+   */
+  private showError(message: string): void {
+    const errorMessage: ChatMessage = {
+      id: 'error-' + Date.now(),
+      role: 'assistant',
+      content: `⚠️ ${message}`,
+      timestamp: Date.now(),
+      isError: true
+    };
+
+    const component = new ChatMessageComponent({ message: errorMessage });
+    this.messagesContainer.appendChild(component.getElement());
+    this.scrollToBottom();
+  }
+
+  /**
+   * Clear all messages
+   */
+  async clearMessages(): Promise<void> {
+    try {
+      await window.electronAPI.clearChatHistory();
+      this.messages = [];
+      this.renderMessages();
+    } catch (error) {
+      console.error('Failed to clear messages:', error);
+    }
+  }
+
+  /**
+   * Scroll to bottom of messages
+   */
+  scrollToBottom(): void {
+    if (this.settings.autoScroll) {
+      this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+    }
+  }
+
+  /**
+   * Focus the input
+   */
+  focus(): void {
+    this.chatInput.focus();
+  }
+
+  /**
+   * Add a message programmatically (for Phase 4 streaming)
+   */
+  async addMessage(message: Omit<ChatMessage, 'id' | 'timestamp'>): Promise<ChatMessage> {
+    const newMessage = await window.electronAPI.addChatMessage(message);
+    this.messages.push(newMessage);
+    this.renderMessages();
+    return newMessage;
+  }
+
+  /**
+   * Get current provider
+   */
+  getSelectedProvider(): LLMProvider {
+    return this.settings.selectedProvider;
+  }
+
+  /**
+   * Refresh messages from store
+   */
+  async refresh(): Promise<void> {
+    await this.loadMessages();
+  }
+}
+
+Update HTML
+Update src/renderer/index.html
+
+Replace the chat panel section:
+
+html
+
+<!-- Right Panel: AI Chat -->
+<section id="chat-panel" class="panel">
+  <div class="panel-header">
+    <div class="panel-header-left">
+      <span class="panel-title">AI Assistant</span>
+    </div>
+    <div class="panel-header-right">
+      <span id="model-badge" class="model-badge">Claude</span>
+    </div>
+  </div>
+  <!-- Chat container will be populated by JavaScript -->
+  <div id="chat-container" class="chat-panel-content"></div>
+</section>
+
+Remove or keep the old chat placeholder - it will be replaced by the ChatContainer component.
+Chat Styles
+New file: src/renderer/styles/chat.css
+
+css
+
+/**
+ * Chat Styles
+ * Styles for the AI chat interface
+ */
+
+/* ==================== CHAT CONTAINER ==================== */
+
+.chat-panel-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ==================== MESSAGES CONTAINER ==================== */
+
+.chat-messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ==================== EMPTY STATE ==================== */
+
+.chat-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 24px;
+}
+
+.chat-empty-state.hidden {
+  display: none;
+}
+
+.chat-empty-state .empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.6;
+}
+
+.chat-empty-state h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.chat-empty-state p {
+  font-size: 13px;
+  max-width: 280px;
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+
+.empty-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 280px;
+}
+
+.suggestion-btn {
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.suggestion-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+/* ==================== CHAT MESSAGE ==================== */
+
+.chat-message {
+  display: flex;
+  gap: 12px;
+  animation: messageSlideIn 0.2s ease;
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-message.user {
+  flex-direction: row-reverse;
+}
+
+.chat-message.user .message-content-wrapper {
+  align-items: flex-end;
+}
+
+.chat-message.user .message-content {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.chat-message.user .message-header {
+  flex-direction: row-reverse;
+}
+
+/* Avatar */
+.message-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.chat-message.user .message-avatar {
+  background: var(--accent-primary);
+}
+
+/* Content wrapper */
+.message-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 80%;
+  min-width: 0;
+}
+
+/* Header */
+.message-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.message-role {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.message-timestamp {
+  color: var(--text-secondary);
+}
+
+/* Content */
+.message-content {
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.chat-message.assistant .message-content {
+  border-top-left-radius: 4px;
+}
+
+.chat-message.user .message-content {
+  border-top-right-radius: 4px;
+}
+
+/* Error message */
+.chat-message.error .message-content {
+  background: rgba(241, 76, 76, 0.1);
+  border: 1px solid var(--accent-error);
+  color: var(--accent-error);
+}
+
+/* Message actions */
+.message-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.chat-message:hover .message-actions {
+  opacity: 1;
+}
+
+.message-action-btn {
+  padding: 4px 6px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.6;
+  transition: all var(--transition-fast);
+}
+
+.message-action-btn:hover {
+  opacity: 1;
+  background: var(--bg-hover);
+}
+
+/* ==================== LOADING INDICATOR ==================== */
+
+.chat-message.loading .message-content {
+  padding: 14px 18px;
+}
+
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.typing-indicator .dot {
+  width: 8px;
+  height: 8px;
+  background: var(--text-secondary);
+  border-radius: 50%;
+  animation: typingBounce 1.4s infinite ease-in-out both;
+}
+
+.typing-indicator .dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.typing-indicator .dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes typingBounce {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ==================== CHAT INPUT ==================== */
+
+.chat-input-container {
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  padding: 12px;
+}
+
+.chat-input-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.provider-select {
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.provider-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.clear-chat-btn {
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all var(--transition-fast);
+}
+
+.clear-chat-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.chat-input-wrapper {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.chat-textarea {
+  flex: 1;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: none;
+  min-height: 40px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.chat-textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.chat-textarea::placeholder {
+  color: var(--text-disabled);
+}
+
+.chat-textarea:disabled {
+  background: var(--bg-tertiary);
+  cursor: not-allowed;
+}
+
+.chat-send-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-primary);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.chat-send-btn:hover:not(:disabled) {
+  background: var(--accent-secondary);
+}
+
+.chat-send-btn:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.chat-send-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ==================== SCROLLBAR ==================== */
+
+.chat-messages-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-messages-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-messages-container::-webkit-scrollbar-thumb {
+  background: var(--bg-hover);
+  border-radius: 4px;
+}
+
+.chat-messages-container::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+Update Renderer Entry
+Update src/renderer/renderer.ts
+
+Add chat initialization:
+
+typescript
+
+/**
+ * Add import at top
+ */
+import { ChatContainer } from './components/chat-container';
+
+/**
+ * Add variable after existing declarations
+ */
+let chatContainer: ChatContainer | null = null;
+
+/**
+ * Add this function
+ */
+async function initializeChat(): Promise<void> {
+  const container = document.getElementById('chat-container');
   
+  if (!container) {
+    console.error('Chat container not found');
+    return;
+  }
+
+  chatContainer = new ChatContainer({
+    container,
+    onSendMessage: (message) => {
+      console.log('Message sent:', message);
+      // Phase 4 will handle actual LLM calls
+    }
+  });
+
+  await chatContainer.initialize();
+  
+  // Update model badge when provider changes
+  updateModelBadge();
+
+  console.log('Chat initialized');
+}
+
+/**
+ * Update model badge display
+ */
+function updateModelBadge(): void {
+  const badge = document.getElementById('model-badge');
+  if (!badge || !chatContainer) return;
+
+  const provider = chatContainer.getSelectedProvider();
+  
+  switch (provider) {
+    case 'claude':
+      badge.textContent = 'Claude';
+      badge.style.backgroundColor = 'var(--accent-primary)';
+      break;
+    case 'openai':
+      badge.textContent = 'GPT-4';
+      badge.style.backgroundColor = '#10a37f';
+      break;
+    case 'moonshot':
+      badge.textContent = 'Moonshot';
+      badge.style.backgroundColor = '#6366f1';
+      break;
+  }
+}
+
+/**
+ * Update initializeApp() to include chat
+ */
+async function initializeApp(): Promise<void> {
+  console.log('Initializing Pi Assistant...');
+
+  initializeLayout();
+  initializeTerminal();
+  initializeWindowControls();
+  setupKeyboardShortcuts();
+  initializeServerManagement();
+  
+  // ADD THIS - Note: async
+  await initializeChat();
+
+  console.log('Pi Assistant initialized successfully');
+}
+
+/**
+ * Update cleanup to include chat
+ */
+function cleanup(): void {
+  terminalManager?.dispose();
+  layoutManager?.dispose();
+  window.electronAPI.removeAllListeners('terminal:data');
+  window.electronAPI.removeAllListeners('ssh:status');
+  // Chat doesn't need explicit cleanup - messages are persisted
+}
+
+Also update the DOMContentLoaded handler if it's not already async:
+
+typescript
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  initializeApp().catch(err => {
+    console.error('Failed to initialize app:', err);
+  });
+});
+
+Update HTML Head
+Update src/renderer/index.html
+
+Add the chat stylesheet in the <head>:
+
+html
+
+<head>
+    <!-- ... existing meta tags and stylesheets ... -->
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/layout.css">
+    <link rel="stylesheet" href="styles/terminal.css">
+    <link rel="stylesheet" href="styles/components.css">
+    <link rel="stylesheet" href="styles/chat.css">  <!-- ADD THIS -->
+</head>
+
+Verification Checklist
+
+After implementing Phase 3, verify:
+UI/Visual
+
+    Chat panel displays empty state on first load
+    Suggestion buttons appear in empty state
+    Clicking suggestion populates input field
+    Provider dropdown shows Claude, GPT-4, Moonshot options
+    Model badge in header updates when provider changes
+    Clear button visible in chat input header
+
+Functionality
+
+    Typing in input auto-resizes textarea
+    Enter sends message (Shift+Enter for newline)
+    Send button sends message
+    User messages appear with blue bubble on right
+    Placeholder responses appear with gray bubble on left
+    Loading indicator (typing dots) shows during "response"
+    Copy button appears on hover over messages
+    Copy button copies message content to clipboard
+    Timestamps display correctly
+    Clear chat removes all messages
+
+Persistence
+
+    Close and reopen app - messages persist
+    Provider selection persists after restart
+    Multiple chat sessions can be stored (for future UI)
+
+Layout
+
+    Chat panel resizes correctly with layout handle
+    Messages container scrolls when content overflows
+    Auto-scroll to bottom on new message
+    No visual glitches during resize
+
+Build & Test
+
+powershell
+
+# Rebuild
+npm run build
+
+# Test
+npm start
+
+Test Scenarios
+
+    Empty State:
+        Fresh install should show empty state
+        Click suggestion → should populate input
+
+    Send Message:
+        Type message → press Enter
+        Message appears in bubble
+        Placeholder response appears after delay
+
+    Persistence:
+        Send a few messages
+        Close app completely
+        Reopen → messages should still be there
+
+    Provider Switching:
+        Change provider in dropdown
+        Badge should update
+        Setting should persist after restart
+
+    Clear Chat:
+        Click Clear button
+        Confirm dialog
+        All messages removed
+        Empty state reappears
+
+Next Phase Preview
+
+Phase 3A will add:
+
+    Markdown rendering in messages
+    Code syntax highlighting
+    Copy code button for code blocks
+    Message timestamps (relative time)
+
+Phase 4 will add:
+
+    Actual LLM API integration
+    API key management in settings
+    Streaming responses
+    Error handling for API calls
+    Token counting/limits
+
+Files Created/Modified Summary
+File	Action
+src/shared/types.ts	UPDATE - Add chat types
+src/main/store/chat-store.ts	NEW
+src/main/main.ts	UPDATE - Add chat IPC handlers
+src/main/preload.ts	UPDATE - Expose chat API
+src/renderer/components/chat-message.ts	NEW
+src/renderer/components/chat-input.ts	NEW
+src/renderer/components/chat-container.ts	NEW
+src/renderer/styles/chat.css	NEW
+src/renderer/index.html	UPDATE - Chat panel HTML
+src/renderer/renderer.ts	UPDATE - Initialize chat
+
+text
+
+
+---
+
+That completes the **Phase 3 Build Plan**. 

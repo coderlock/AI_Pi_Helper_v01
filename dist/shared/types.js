@@ -30,5 +30,15 @@ exports.IPC_CHANNELS = {
     SERVER_CONNECT: 'server:connect',
     SERVER_HAS_PASSWORD: 'server:has-password',
     SERVER_TEST_CONNECTION: 'server:test-connection',
+    // Chat
+    CHAT_GET_MESSAGES: 'chat:get-messages',
+    CHAT_ADD_MESSAGE: 'chat:add-message',
+    CHAT_CLEAR_HISTORY: 'chat:clear-history',
+    CHAT_GET_SETTINGS: 'chat:get-settings',
+    CHAT_UPDATE_SETTINGS: 'chat:update-settings',
+    CHAT_GET_SESSIONS: 'chat:get-sessions',
+    CHAT_GET_SESSION: 'chat:get-session',
+    CHAT_CREATE_SESSION: 'chat:create-session',
+    CHAT_DELETE_SESSION: 'chat:delete-session',
 };
 //# sourceMappingURL=types.js.map

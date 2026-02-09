@@ -8,6 +8,7 @@ const terminal_1 = require("./terminal");
 const layout_1 = require("./layout");
 const server_dropdown_1 = require("./components/server-dropdown");
 const server_modal_1 = require("./components/server-modal");
+const chat_container_1 = require("./components/chat-container");
 // Import xterm.js CSS
 require("xterm/css/xterm.css");
 // Global references
@@ -15,12 +16,13 @@ let terminalManager = null;
 let layoutManager = null;
 let serverDropdown = null;
 let serverModal = null;
+let chatContainer = null;
 let isSSHConnected = false;
 let currentServerId = null;
 /**
  * Initialize the application
  */
-function initializeApp() {
+async function initializeApp() {
     console.log('Initializing Pi Assistant...');
     // Initialize layout
     initializeLayout();
@@ -32,6 +34,8 @@ function initializeApp() {
     setupKeyboardShortcuts();
     // Initialize server management UI
     initializeServerManagement();
+    // Initialize chat UI
+    await initializeChat();
     console.log('Pi Assistant initialized successfully');
 }
 /**
@@ -663,9 +667,58 @@ function cleanup() {
     terminalManager?.dispose();
     layoutManager?.dispose();
     window.electronAPI.removeAllListeners('terminal:data');
+    // Chat doesn't need explicit cleanup - messages are persisted
+}
+/**
+ * Initialize chat UI
+ */
+async function initializeChat() {
+    const container = document.getElementById('chat-container');
+    if (!container) {
+        console.error('Chat container not found');
+        return;
+    }
+    chatContainer = new chat_container_1.ChatContainer({
+        container,
+        onSendMessage: (message) => {
+            console.log('Message sent:', message);
+            // Phase 4 will handle actual LLM calls
+        }
+    });
+    await chatContainer.initialize();
+    // Update model badge when provider changes
+    updateModelBadge();
+    console.log('Chat initialized');
+}
+/**
+ * Update model badge display
+ */
+function updateModelBadge() {
+    const badge = document.getElementById('model-badge');
+    if (!badge || !chatContainer)
+        return;
+    const provider = chatContainer.getSelectedProvider();
+    switch (provider) {
+        case 'claude':
+            badge.textContent = 'Claude';
+            badge.style.backgroundColor = 'var(--accent-primary)';
+            break;
+        case 'openai':
+            badge.textContent = 'GPT-4';
+            badge.style.backgroundColor = '#10a37f';
+            break;
+        case 'moonshot':
+            badge.textContent = 'Moonshot';
+            badge.style.backgroundColor = '#6366f1';
+            break;
+    }
 }
 // Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', initializeApp);
+document.addEventListener('DOMContentLoaded', () => {
+    initializeApp().catch(err => {
+        console.error('Failed to initialize app:', err);
+    });
+});
 // Cleanup on unload
 window.addEventListener('beforeunload', cleanup);
 //# sourceMappingURL=renderer.js.map

@@ -111,6 +111,34 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(IPC_CHANNELS.SERVER_TEST_CONNECTION, config);
   },
 
+  // Chat
+  getChatMessages: (sessionId?: string) => 
+    ipcRenderer.invoke(IPC_CHANNELS.CHAT_GET_MESSAGES, sessionId),
+
+  addChatMessage: (message, sessionId?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHAT_ADD_MESSAGE, message, sessionId),
+
+  clearChatHistory: (sessionId?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHAT_CLEAR_HISTORY, sessionId),
+
+  getChatSettings: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHAT_GET_SETTINGS),
+
+  updateChatSettings: (settings) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHAT_UPDATE_SETTINGS, settings),
+
+  getChatSessions: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHAT_GET_SESSIONS),
+
+  getChatSession: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHAT_GET_SESSION, sessionId),
+
+  createChatSession: (provider) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHAT_CREATE_SESSION, provider),
+
+  deleteChatSession: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHAT_DELETE_SESSION, sessionId),
+
   // Utility
   getPlatform: () => {
     return process.platform;

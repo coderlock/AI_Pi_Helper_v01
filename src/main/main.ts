@@ -6,10 +6,11 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import { PtyManager } from './pty';
-import { IPC_CHANNELS, ServerFormData, SSHConnectionResult } from '../shared/types';
+import { IPC_CHANNELS, ServerFormData, SSHConnectionResult, ChatMessage, ChatSettings, LLMProvider } from '../shared/types';
 import { SSHManager, SSHConfig, SSHStatus } from './ssh-manager';
 import { CredentialStore } from './store/credential-store';
 import { ServerStore } from './store/server-store';
+import { ChatStore } from './store/chat-store';
 
 let mainWindow: BrowserWindow | null = null;
 let ptyManager: PtyManager | null = null;
@@ -17,6 +18,7 @@ let sshManager: SSHManager | null = null;
 let isSSHActive = false;
 let credentialStore: CredentialStore;
 let serverStore: ServerStore;
+let chatStore: ChatStore;
 
 /**
  * Create the main application window
@@ -97,6 +99,7 @@ function initializeSSHManager(): void {
 function initializeStores(): void {
   credentialStore = new CredentialStore();
   serverStore = new ServerStore(credentialStore);
+  chatStore = new ChatStore();
   console.log('Stores initialized');
   console.log(`Secure storage available: ${credentialStore.isAvailable()}`);
 }
@@ -329,6 +332,53 @@ function setupIpcHandlers(): void {
       testManager.disconnect();
       return { success: false, error: error.message };
     }
+  });
+
+  // ============== CHAT HANDLERS ==============
+
+  // Get messages
+  ipcMain.handle(IPC_CHANNELS.CHAT_GET_MESSAGES, (_, sessionId?: string) => {
+    return chatStore.getMessages(sessionId);
+  });
+
+  // Add message
+  ipcMain.handle(IPC_CHANNELS.CHAT_ADD_MESSAGE, (_, message: Omit<ChatMessage, 'id' | 'timestamp'>, sessionId?: string) => {
+    return chatStore.addMessage(message, sessionId);
+  });
+
+  // Clear history
+  ipcMain.handle(IPC_CHANNELS.CHAT_CLEAR_HISTORY, (_, sessionId?: string) => {
+    chatStore.clearHistory(sessionId);
+  });
+
+  // Get settings
+  ipcMain.handle(IPC_CHANNELS.CHAT_GET_SETTINGS, () => {
+    return chatStore.getSettings();
+  });
+
+  // Update settings
+  ipcMain.handle(IPC_CHANNELS.CHAT_UPDATE_SETTINGS, (_, settings: Partial<ChatSettings>) => {
+    return chatStore.updateSettings(settings);
+  });
+
+  // Get all sessions
+  ipcMain.handle(IPC_CHANNELS.CHAT_GET_SESSIONS, () => {
+    return chatStore.getSessions();
+  });
+
+  // Get single session
+  ipcMain.handle(IPC_CHANNELS.CHAT_GET_SESSION, (_, sessionId: string) => {
+    return chatStore.getSession(sessionId);
+  });
+
+  // Create session
+  ipcMain.handle(IPC_CHANNELS.CHAT_CREATE_SESSION, (_, provider?: LLMProvider) => {
+    return chatStore.createSession(provider);
+  });
+
+  // Delete session
+  ipcMain.handle(IPC_CHANNELS.CHAT_DELETE_SESSION, (_, sessionId: string) => {
+    return chatStore.deleteSession(sessionId);
   });
 }
 

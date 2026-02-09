@@ -284,6 +284,13 @@ export class ServerModal {
     // Reset form
     this.form.reset();
     
+    // Ensure overlay and form are fully enabled
+    this.overlay.style.pointerEvents = 'auto';
+    this.overlay.classList.remove('disabled');
+    this.form.disabled = false;
+    this.form.style.pointerEvents = 'auto';
+    this.form.classList.remove('disabled');
+    
     // Get all input elements
     const nameInput = document.getElementById('server-name') as HTMLInputElement;
     const descInput = document.getElementById('server-description') as HTMLInputElement;
@@ -297,12 +304,15 @@ export class ServerModal {
     portInput.value = '22';
     saveCredsInput.checked = true;
     
-    // Explicitly enable and remove any blocking attributes
+    // Explicitly enable and remove any blocking attributes and classes
     [nameInput, descInput, hostInput, portInput, userInput, passInput, saveCredsInput].forEach(input => {
       if (input) {
         input.disabled = false;
         input.removeAttribute('readonly');
+        input.removeAttribute('disabled');
+        input.classList.remove('disabled');
         input.style.pointerEvents = 'auto';
+        input.style.opacity = '1';
       }
     });
     
@@ -311,9 +321,15 @@ export class ServerModal {
     const saveBtn = document.getElementById('server-modal-save') as HTMLButtonElement;
     saveBtn.textContent = 'Save Server';
     saveBtn.disabled = false;
+    saveBtn.removeAttribute('disabled');
+    saveBtn.classList.remove('disabled');
+    saveBtn.style.pointerEvents = 'auto';
     
     const testBtn = document.getElementById('server-modal-test') as HTMLButtonElement;
     testBtn.disabled = false;
+    testBtn.removeAttribute('disabled');
+    testBtn.classList.remove('disabled');
+    testBtn.style.pointerEvents = 'auto';
     testBtn.textContent = 'Test Connection';
     
     // Clear status
@@ -321,9 +337,8 @@ export class ServerModal {
     
     // Show modal
     this.overlay.classList.remove('hidden');
-    this.overlay.style.pointerEvents = 'auto';
     
-    // Focus first input
+    // Focus first input with delay to ensure modal is fully rendered
     setTimeout(() => {
       nameInput?.focus();
     }, 100);
@@ -343,6 +358,13 @@ export class ServerModal {
       return;
     }
 
+    // Ensure overlay and form are fully enabled
+    this.overlay.style.pointerEvents = 'auto';
+    this.overlay.classList.remove('disabled');
+    this.form.disabled = false;
+    this.form.style.pointerEvents = 'auto';
+    this.form.classList.remove('disabled');
+
     // Get all input elements
     const nameInput = document.getElementById('server-name') as HTMLInputElement;
     const descInput = document.getElementById('server-description') as HTMLInputElement;
@@ -361,12 +383,15 @@ export class ServerModal {
     passInput.value = '';  // Don't show stored password
     saveCredsInput.checked = server.saveCredentials;
 
-    // Explicitly enable and remove any blocking attributes
+    // Explicitly enable and remove any blocking attributes and classes
     [nameInput, descInput, hostInput, portInput, userInput, passInput, saveCredsInput].forEach(input => {
       if (input) {
         input.disabled = false;
         input.removeAttribute('readonly');
+        input.removeAttribute('disabled');
+        input.classList.remove('disabled');
         input.style.pointerEvents = 'auto';
+        input.style.opacity = '1';
       }
     });
 
@@ -375,9 +400,15 @@ export class ServerModal {
     const saveBtn = document.getElementById('server-modal-save') as HTMLButtonElement;
     saveBtn.textContent = 'Update Server';
     saveBtn.disabled = false;
+    saveBtn.removeAttribute('disabled');
+    saveBtn.classList.remove('disabled');
+    saveBtn.style.pointerEvents = 'auto';
     
     const testBtn = document.getElementById('server-modal-test') as HTMLButtonElement;
     testBtn.disabled = false;
+    testBtn.removeAttribute('disabled');
+    testBtn.classList.remove('disabled');
+    testBtn.style.pointerEvents = 'auto';
     testBtn.textContent = 'Test Connection';
 
     // Clear status
@@ -385,9 +416,8 @@ export class ServerModal {
 
     // Show modal
     this.overlay.classList.remove('hidden');
-    this.overlay.style.pointerEvents = 'auto';
 
-    // Focus first input
+    // Focus first input with delay to ensure modal is fully rendered
     setTimeout(() => {
       nameInput?.focus();
     }, 100);
