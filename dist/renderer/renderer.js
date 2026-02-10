@@ -10,6 +10,9 @@ const server_dropdown_1 = require("./components/server-dropdown");
 const server_modal_1 = require("./components/server-modal");
 const chat_container_1 = require("./components/chat-container");
 const settings_modal_1 = require("./components/settings-modal");
+const prompt_selector_1 = require("./components/prompt-selector");
+const prompt_modal_1 = require("./components/prompt-modal");
+const agent_status_1 = require("./components/agent-status");
 // Import xterm.js CSS
 require("xterm/css/xterm.css");
 // Global references
@@ -19,6 +22,9 @@ let serverDropdown = null;
 let serverModal = null;
 let chatContainer = null;
 let settingsModal = null;
+let promptSelector = null;
+let promptModal = null;
+let agentStatus = null;
 let isSSHConnected = false;
 let currentServerId = null;
 /**
@@ -38,6 +44,10 @@ async function initializeApp() {
     initializeServerManagement();
     // Initialize chat UI
     await initializeChat();
+    // Initialize prompt UI
+    await initializePrompts();
+    // Initialize agent status
+    initializeAgentStatus();
     console.log('Pi Assistant initialized successfully');
 }
 /**
@@ -719,6 +729,54 @@ function initializeSettings() {
         await settingsModal.show();
     });
     console.log('Settings initialized');
+}
+/**
+ * Initialize prompt selector and modal
+ */
+async function initializePrompts() {
+    const selectorContainer = document.getElementById('prompt-selector-container');
+    if (!selectorContainer) {
+        console.error('Prompt selector container not found');
+        return;
+    }
+    // Initialize modal first
+    promptModal = new prompt_modal_1.PromptModal({
+        onSave: () => {
+            promptSelector?.refresh();
+        },
+        onClose: () => {
+            chatContainer?.focus();
+        }
+    });
+    // Initialize selector
+    promptSelector = new prompt_selector_1.PromptSelector({
+        container: selectorContainer,
+        onPromptChange: (promptId, promptName) => {
+            chatContainer?.handlePromptChange(promptId, promptName);
+        },
+        onEditPrompts: () => {
+            promptModal?.show();
+        }
+    });
+    await promptSelector.initialize();
+    console.log('Prompts initialized');
+}
+/**
+ * Initialize agent status component
+ */
+function initializeAgentStatus() {
+    const container = document.getElementById('agent-status-container');
+    if (!container) {
+        console.error('Agent status container not found');
+        return;
+    }
+    agentStatus = new agent_status_1.AgentStatus({ container });
+    // Handle cancel from status component
+    agentStatus.on('cancel', () => {
+        // TODO: Get active command ID and cancel it
+        console.log('Cancel requested from agent status');
+    });
+    console.log('Agent status initialized');
 }
 /**
  * Update model badge display

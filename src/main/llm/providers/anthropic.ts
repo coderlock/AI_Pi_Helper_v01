@@ -7,18 +7,6 @@ import { LLMProvider, LLMMessage } from '../../../shared/types';
 import { BaseLLMProvider } from './base-provider';
 import { StreamOptions, StreamCallbacks } from '../types';
 
-const SYSTEM_PROMPT = `You are a helpful AI assistant integrated into a Raspberry Pi management tool called "Pi Assistant". 
-
-Your role is to help users:
-- Understand Linux/Raspberry Pi concepts
-- Write and explain shell commands
-- Troubleshoot system issues
-- Provide guidance on system administration tasks
-
-Be concise but thorough. When suggesting commands, explain what they do. If a task could be risky (like deleting files or changing system settings), warn the user first.
-
-Note: In a future update, you'll be able to execute commands directly on the user's Pi. For now, provide commands the user can copy and run themselves.`;
-
 export class AnthropicProvider extends BaseLLMProvider {
   readonly provider: LLMProvider = 'anthropic';
   readonly displayName = 'Anthropic (Claude)';
@@ -52,7 +40,8 @@ export class AnthropicProvider extends BaseLLMProvider {
     model: string,
     messages: LLMMessage[],
     options: StreamOptions,
-    callbacks: StreamCallbacks
+    callbacks: StreamCallbacks,
+    systemPrompt: string
   ): Promise<void> {
     const client = this.getClient();
     
@@ -60,16 +49,25 @@ export class AnthropicProvider extends BaseLLMProvider {
     const formattedMessages = this.formatMessages(messages);
 
     try {
-      const stream = await client.messages.stream({
+      const requestOptions: any = {
         model,
         max_tokens: options.maxTokens || 4096,
         temperature: options.temperature ?? 0.7,
-        system: SYSTEM_PROMPT,
+        system: systemPrompt,
         messages: formattedMessages
-      });
+      };
+
+      // Add tools if provided
+      if (options.tools && options.tools.length > 0) {
+        requestOptions.tools = options.tools;
+      }
+
+      const stream = await client.messages.stream(requestOptions);
 
       let inputTokens = 0;
       let outputTokens = 0;
+      let currentToolCall: any | null = null;
+      const toolCalls: any[] = [];
 
       // Handle abort signal
       if (options.signal) {
@@ -79,16 +77,33 @@ export class AnthropicProvider extends BaseLLMProvider {
       }
 
       for await (const event of stream) {
-        if (event.type === 'content_block_delta') {
-          const delta = event.delta as { type: string; text?: string };
+        if (event.type === 'content_block_start') {
+          const block = (event as any).content_block;
+          if (block.type === 'tool_use') {
+            currentToolCall = {
+              id: block.id,
+              name: block.name,
+              arguments: {}
+            };
+          }
+        } else if (event.type === 'content_block_delta') {
+          const delta = event.delta as any;
+          
           if (delta.type === 'text_delta' && delta.text) {
             callbacks.onChunk({
               content: delta.text,
               isComplete: false
             });
+          } else if (delta.type === 'input_json_delta' && currentToolCall) {
+            // Accumulate tool arguments (streamed as JSON)
+            // This is simplified - full implementation would parse incrementally
+          }
+        } else if (event.type === 'content_block_stop') {
+          if (currentToolCall) {
+            toolCalls.push(currentToolCall);
+            currentToolCall = null;
           }
         } else if (event.type === 'message_delta') {
-          // Final usage stats
           const usage = (event as any).usage;
           if (usage) {
             outputTokens = usage.output_tokens || 0;
@@ -101,10 +116,35 @@ export class AnthropicProvider extends BaseLLMProvider {
         }
       }
 
-      // Final message
+      // Get final message for complete tool call arguments
       const finalMessage = await stream.finalMessage();
       inputTokens = finalMessage.usage.input_tokens;
       outputTokens = finalMessage.usage.output_tokens;
+
+      // Extract tool calls from final message
+      for (const block of finalMessage.content) {
+        if (block.type === 'tool_use') {
+          const existingIndex = toolCalls.findIndex(tc => tc.id === block.id);
+          if (existingIndex >= 0) {
+            toolCalls[existingIndex].arguments = block.input;
+          } else {
+            toolCalls.push({
+              id: block.id,
+              name: block.name,
+              arguments: block.input
+            });
+          }
+        }
+      }
+
+      // Send final chunk with tool calls if any
+      if (toolCalls.length > 0) {
+        callbacks.onChunk({
+          content: '',
+          isComplete: true,
+          toolCalls
+        });
+      }
 
       callbacks.onComplete(this.createUsage(model, inputTokens, outputTokens));
 
@@ -144,13 +184,48 @@ export class AnthropicProvider extends BaseLLMProvider {
    * Format messages for Anthropic API
    */
   protected formatMessages(messages: LLMMessage[]): Anthropic.MessageParam[] {
-    // Filter out system messages (handled separately)
-    return messages
-      .filter(m => m.role !== 'system')
-      .map(m => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content
-      }));
+    const formatted: Anthropic.MessageParam[] = [];
+
+    for (const msg of messages) {
+      if (msg.role === 'system') continue;
+
+      if (msg.role === 'tool') {
+        // Tool result message
+        formatted.push({
+          role: 'user',
+          content: [{
+            type: 'tool_result',
+            tool_use_id: msg.toolCallId!,
+            content: msg.content
+          }]
+        });
+      } else if ((msg as any).toolCalls) {
+        // Assistant message with tool calls
+        const content: any[] = [];
+        
+        if (msg.content) {
+          content.push({ type: 'text', text: msg.content });
+        }
+        
+        for (const tc of (msg as any).toolCalls) {
+          content.push({
+            type: 'tool_use',
+            id: tc.id,
+            name: tc.name,
+            input: tc.arguments
+          });
+        }
+        
+        formatted.push({ role: 'assistant', content });
+      } else {
+        formatted.push({
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content
+        });
+      }
+    }
+
+    return formatted;
   }
 
   /**

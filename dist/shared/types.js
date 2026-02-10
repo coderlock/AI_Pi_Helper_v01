@@ -54,5 +54,22 @@ exports.IPC_CHANNELS = {
     SETTINGS_GET_API_KEY_STATUS: 'settings:get-api-key-status',
     SETTINGS_SET_API_KEY: 'settings:set-api-key',
     SETTINGS_DELETE_API_KEY: 'settings:delete-api-key',
+    // Prompts
+    PROMPT_LIST: 'prompt:list',
+    PROMPT_GET: 'prompt:get',
+    PROMPT_GET_ACTIVE: 'prompt:get-active',
+    PROMPT_CREATE: 'prompt:create',
+    PROMPT_UPDATE: 'prompt:update',
+    PROMPT_DELETE: 'prompt:delete',
+    PROMPT_SET_ACTIVE: 'prompt:set-active',
+    PROMPT_SET_DEFAULT: 'prompt:set-default',
+    PROMPT_RESET_BUILT_IN: 'prompt:reset-built-in',
+    // Agent
+    AGENT_EXECUTE_COMMAND: 'agent:execute-command',
+    AGENT_CANCEL_COMMAND: 'agent:cancel-command',
+    AGENT_GET_CONTEXT: 'agent:get-context',
+    AGENT_STATUS_UPDATE: 'agent:status-update',
+    AGENT_REQUEST_APPROVAL: 'agent:request-approval',
+    AGENT_APPROVAL_RESPONSE: 'agent:approval-response',
 };
 //# sourceMappingURL=types.js.map

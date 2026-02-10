@@ -1,0 +1,307 @@
+/**
+ * Agent Styles
+ * Styles for agent status and activity indicators
+ */
+
+/* ==================== AGENT STATUS ==================== */
+
+.agent-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-primary);
+  animation: slideDown 0.2s ease;
+}
+
+.agent-status.hidden {
+  display: none;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.agent-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-primary);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.agent-status.executing .agent-spinner {
+  border-top-color: var(--accent-success);
+}
+
+.agent-status.waiting .agent-spinner {
+  border-top-color: var(--accent-warning);
+}
+
+.agent-status-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.agent-status.executing .agent-status-text {
+  color: var(--accent-success);
+}
+
+.agent-status.waiting .agent-status-text {
+  color: var(--accent-warning);
+}
+
+.agent-cancel-btn {
+  padding: 4px 8px;
+  background: none;
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.agent-cancel-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-error);
+  color: var(--accent-error);
+}
+
+/* ==================== APPROVAL DIALOG ==================== */
+
+.agent-approval-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.approval-dialog-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+}
+
+.approval-dialog-content {
+  position: relative;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  max-width: 600px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  animation: dialogFadeIn 0.2s ease;
+}
+
+@keyframes dialogFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.approval-dialog-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.approval-dialog-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.approval-dialog-body {
+  padding: 20px;
+}
+
+.approval-description {
+  margin: 0 0 12px 0;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.approval-command {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 12px 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.approval-command code {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  display: block;
+}
+
+.approval-warning {
+  margin: 12px 0 0 0;
+  padding: 10px 12px;
+  background: rgba(255, 193, 7, 0.1);
+  border-left: 3px solid var(--accent-warning);
+  border-radius: 4px;
+  color: var(--accent-warning);
+  font-size: 13px;
+}
+
+.approval-dialog-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-primary);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.btn {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-primary {
+  background: var(--accent-success);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #27ae60;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(46, 204, 113, 0.3);
+}
+
+.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-error);
+  color: var(--accent-error);
+}
+
+/* ==================== COMMAND DISPLAY IN CHAT ==================== */
+
+.chat-message .command-block {
+  margin: 8px 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.command-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-primary);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.command-block-content {
+  padding: 10px 12px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.command-block-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.command-block-status.running {
+  color: var(--accent-warning);
+}
+
+.command-block-status.success {
+  color: var(--accent-success);
+}
+
+.command-block-status.error {
+  color: var(--accent-error);
+}
+
+/* ==================== TOOL RESULT INDICATOR ==================== */
+
+.tool-result-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  margin: 4px 0;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-primary);
+}
+
+.tool-result-indicator .tool-icon {
+  font-size: 12px;
+}
+
+.tool-result-indicator.success .tool-icon {
+  color: var(--accent-success);
+}
+
+.tool-result-indicator.error .tool-icon {
+  color: var(--accent-error);
+}

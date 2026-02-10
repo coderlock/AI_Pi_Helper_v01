@@ -20,7 +20,7 @@ export declare class AnthropicProvider extends BaseLLMProvider {
     /**
      * Stream message to Claude
      */
-    streamMessage(model: string, messages: LLMMessage[], options: StreamOptions, callbacks: StreamCallbacks): Promise<void>;
+    streamMessage(model: string, messages: LLMMessage[], options: StreamOptions, callbacks: StreamCallbacks, systemPrompt: string): Promise<void>;
     /**
      * Test API key validity
      */

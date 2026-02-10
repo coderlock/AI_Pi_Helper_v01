@@ -6,7 +6,12 @@ import { BrowserWindow } from 'electron';
 export declare class PtyManager {
     private ptyProcess;
     private window;
+    private dataListeners;
     constructor(window: BrowserWindow);
+    /**
+     * Add a data listener (for agent processing)
+     */
+    addDataListener(listener: (data: string) => void): void;
     /**
      * Initialize the PTY process
      */

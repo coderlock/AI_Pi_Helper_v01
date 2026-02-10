@@ -5,16 +5,38 @@
 import { BrowserWindow } from 'electron';
 import { LLMProvider, LLMRequestOptions, ProviderConfig } from '../../shared/types';
 import { CredentialStore } from '../store/credential-store';
+import { PromptStore } from '../store/prompt-store';
+import { AgentExecutor } from '../agent/agent-executor';
+import { TerminalContext } from '../agent/types';
 export declare class LLMService {
     private providers;
     private activeRequests;
     private credentialStore;
+    private promptStore;
     private mainWindow;
-    constructor(credentialStore: CredentialStore);
+    private toolHandler;
+    private agentExecutor;
+    constructor(credentialStore: CredentialStore, promptStore: PromptStore);
     /**
      * Set the main window for IPC events
      */
     setMainWindow(window: BrowserWindow): void;
+    /**
+     * Set the agent executor for tool handling
+     */
+    setAgentExecutor(executor: AgentExecutor): void;
+    /**
+     * Get terminal context for system prompt enhancement
+     */
+    getTerminalContext(): TerminalContext | null;
+    /**
+     * Get the current system prompt
+     */
+    getSystemPrompt(): string;
+    /**
+     * Get tools formatted for the current provider
+     */
+    private getToolsForProvider;
     /**
      * Initialize all providers
      */
@@ -50,6 +72,14 @@ export declare class LLMService {
      * Send a message with streaming response
      */
     sendMessage(options: LLMRequestOptions): Promise<string>;
+    /**
+     * Stream response with tool call handling
+     */
+    private streamWithTools;
+    /**
+     * Handle tool calls and continue conversation
+     */
+    private handleToolCalls;
     /**
      * Cancel an active request
      */

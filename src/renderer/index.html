@@ -13,7 +13,8 @@
     <link rel="stylesheet" href="styles/components.css">
     <link rel="stylesheet" href="styles/chat.css">
     <link rel="stylesheet" href="styles/settings.css">
-    <link rel="stylesheet" href="styles/settings.css">
+    <link rel="stylesheet" href="styles/prompts.css">
+    <link rel="stylesheet" href="styles/agent.css">
 </head>
 <body>
     <!-- Custom Title Bar -->
@@ -74,10 +75,16 @@
                     <span class="panel-title">AI Assistant</span>
                 </div>
                 <div class="panel-header-right">
-                    <button id="settings-btn" class="icon-button" title="Settings">⚙️</button>
+                    <!-- Prompt Selector -->
+                    <div id="prompt-selector-container"></div>
+                    <!-- Provider/Model Badge -->
                     <span id="model-badge" class="model-badge">Claude</span>
+                    <!-- Settings Button -->
+                    <button id="settings-btn" class="icon-button" title="Settings">⚙️</button>
                 </div>
             </div>
+            <!-- Agent Status (appears when agent is active) -->
+            <div id="agent-status-container"></div>
             <!-- Chat container will be populated by JavaScript -->
             <div id="chat-container" class="chat-panel-content"></div>
         </section>

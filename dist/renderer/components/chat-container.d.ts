@@ -22,6 +22,8 @@ export declare class ChatContainer {
     private renderedMessageCount;
     private currentRequestId;
     private currentStreamingMessage;
+    private lastPromptId;
+    private lastPromptName;
     constructor(options: ChatContainerOptions);
     /**
      * Initialize the chat container
@@ -91,5 +93,17 @@ export declare class ChatContainer {
      * Refresh messages from store
      */
     refresh(): Promise<void>;
+    /**
+     * Handle prompt change
+     */
+    handlePromptChange(promptId: string, promptName: string): void;
+    /**
+     * Add prompt change indicator to chat
+     */
+    private addPromptChangeIndicator;
+    /**
+     * Escape HTML for safe display
+     */
+    private escapeHtml;
 }
 //# sourceMappingURL=chat-container.d.ts.map

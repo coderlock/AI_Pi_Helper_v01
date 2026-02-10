@@ -44,8 +44,15 @@ const os = __importStar(require("os"));
 class PtyManager {
     constructor(window) {
         this.ptyProcess = null;
+        this.dataListeners = [];
         this.window = window;
         this.initialize();
+    }
+    /**
+     * Add a data listener (for agent processing)
+     */
+    addDataListener(listener) {
+        this.dataListeners.push(listener);
     }
     /**
      * Initialize the PTY process
@@ -67,6 +74,10 @@ class PtyManager {
             // Listen for data from the PTY
             this.ptyProcess.onData((data) => {
                 this.window.webContents.send(types_1.IPC_CHANNELS.TERMINAL_DATA, data);
+                // Call all data listeners
+                for (const listener of this.dataListeners) {
+                    listener(data);
+                }
             });
             // Listen for PTY exit
             this.ptyProcess.onExit(({ exitCode, signal }) => {

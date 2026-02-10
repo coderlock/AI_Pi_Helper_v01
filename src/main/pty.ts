@@ -11,10 +11,18 @@ import * as os from 'os';
 export class PtyManager {
   private ptyProcess: pty.IPty | null = null;
   private window: BrowserWindow;
+  private dataListeners: ((data: string) => void)[] = [];
 
   constructor(window: BrowserWindow) {
     this.window = window;
     this.initialize();
+  }
+
+  /**
+   * Add a data listener (for agent processing)
+   */
+  addDataListener(listener: (data: string) => void): void {
+    this.dataListeners.push(listener);
   }
 
   /**
@@ -39,6 +47,10 @@ export class PtyManager {
       // Listen for data from the PTY
       this.ptyProcess.onData((data: string) => {
         this.window.webContents.send(IPC_CHANNELS.TERMINAL_DATA, data);
+        // Call all data listeners
+        for (const listener of this.dataListeners) {
+          listener(data);
+        }
       });
 
       // Listen for PTY exit

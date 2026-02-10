@@ -9,6 +9,9 @@ import { ServerDropdown } from './components/server-dropdown';
 import { ServerModal } from './components/server-modal';
 import { ChatContainer } from './components/chat-container';
 import { SettingsModal } from './components/settings-modal';
+import { PromptSelector } from './components/prompt-selector';
+import { PromptModal } from './components/prompt-modal';
+import { AgentStatus } from './components/agent-status';
 import type { ServerProfile, ServerFormData } from '../shared/types';
 
 // Import xterm.js CSS
@@ -21,6 +24,9 @@ let serverDropdown: ServerDropdown | null = null;
 let serverModal: ServerModal | null = null;
 let chatContainer: ChatContainer | null = null;
 let settingsModal: SettingsModal | null = null;
+let promptSelector: PromptSelector | null = null;
+let promptModal: PromptModal | null = null;
+let agentStatus: AgentStatus | null = null;
 let isSSHConnected = false;
 let currentServerId: string | null = null;
 
@@ -47,6 +53,12 @@ async function initializeApp(): Promise<void> {
 
   // Initialize chat UI
   await initializeChat();
+
+  // Initialize prompt UI
+  await initializePrompts();
+
+  // Initialize agent status
+  initializeAgentStatus();
 
   console.log('Pi Assistant initialized successfully');
 }
@@ -825,6 +837,65 @@ function initializeSettings(): void {
   });
 
   console.log('Settings initialized');
+}
+
+/**
+ * Initialize prompt selector and modal
+ */
+async function initializePrompts(): Promise<void> {
+  const selectorContainer = document.getElementById('prompt-selector-container');
+  
+  if (!selectorContainer) {
+    console.error('Prompt selector container not found');
+    return;
+  }
+
+  // Initialize modal first
+  promptModal = new PromptModal({
+    onSave: () => {
+      promptSelector?.refresh();
+    },
+    onClose: () => {
+      chatContainer?.focus();
+    }
+  });
+
+  // Initialize selector
+  promptSelector = new PromptSelector({
+    container: selectorContainer,
+    onPromptChange: (promptId, promptName) => {
+      chatContainer?.handlePromptChange(promptId, promptName);
+    },
+    onEditPrompts: () => {
+      promptModal?.show();
+    }
+  });
+
+  await promptSelector.initialize();
+
+  console.log('Prompts initialized');
+}
+
+/**
+ * Initialize agent status component
+ */
+function initializeAgentStatus(): void {
+  const container = document.getElementById('agent-status-container');
+  
+  if (!container) {
+    console.error('Agent status container not found');
+    return;
+  }
+
+  agentStatus = new AgentStatus({ container });
+  
+  // Handle cancel from status component
+  agentStatus.on('cancel', () => {
+    // TODO: Get active command ID and cancel it
+    console.log('Cancel requested from agent status');
+  });
+
+  console.log('Agent status initialized');
 }
 
 /**

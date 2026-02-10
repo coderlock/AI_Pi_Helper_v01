@@ -6,13 +6,16 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import { PtyManager } from './pty';
-import { IPC_CHANNELS, ServerFormData, SSHConnectionResult, ChatMessage, ChatSettings, LLMProvider, LLMRequestOptions, AppSettings } from '../shared/types';
+import { IPC_CHANNELS, ServerFormData, SSHConnectionResult, ChatMessage, ChatSettings, LLMProvider, LLMRequestOptions, AppSettings, PromptFormData, CommandRequest, CommandApprovalResponse } from '../shared/types';
 import { SSHManager, SSHConfig, SSHStatus } from './ssh-manager';
 import { CredentialStore } from './store/credential-store';
 import { ServerStore } from './store/server-store';
 import { ChatStore } from './store/chat-store';
 import { LLMService } from './llm/llm-service';
 import { SettingsStore } from './store/settings-store';
+import { PromptStore } from './store/prompt-store';
+import { TerminalBridge } from './agent/terminal-bridge';
+import { AgentExecutor } from './agent/agent-executor';
 
 let mainWindow: BrowserWindow | null = null;
 let ptyManager: PtyManager | null = null;
@@ -23,6 +26,9 @@ let serverStore: ServerStore;
 let chatStore: ChatStore;
 let llmService: LLMService;
 let settingsStore: SettingsStore;
+let promptStore: PromptStore;
+let terminalBridge: TerminalBridge;
+let agentExecutor: AgentExecutor;
 
 /**
  * Create the main application window
@@ -53,12 +59,22 @@ function createWindow(): void {
 
   // Initialize PTY manager
   ptyManager = new PtyManager(mainWindow);
+  
+  // Add data listener for agent processing
+  ptyManager.addDataListener((data: string) => {
+    agentExecutor.processTerminalData(data);
+  });
 
   // Initialize SSH manager
   initializeSSHManager();
 
-  // Set main window for LLM service
+  // Set main window for LLM service and agent
   llmService.setMainWindow(mainWindow);
+  agentExecutor.setMainWindow(mainWindow);
+  
+  // Set PTY manager and SSH manager for terminal bridge
+  terminalBridge.setPtyManager(ptyManager);
+  terminalBridge.setSSHManager(sshManager, isSSHActive);
 
   // Handle window close
   mainWindow.on('closed', () => {
@@ -83,6 +99,8 @@ function initializeSSHManager(): void {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_DATA, data);
       }
+      // Process for agent capture
+      agentExecutor.processTerminalData(data);
     },
     onStatus: (status: SSHStatus, message?: string) => {
       console.log(`SSH Status: ${status}${message ? ` - ${message}` : ''}`);
@@ -93,8 +111,10 @@ function initializeSSHManager(): void {
       // If disconnected or error, flag SSH as inactive
       if (status === 'disconnected' || status === 'error') {
         isSSHActive = false;
+        terminalBridge.setSSHActive(false);
       } else if (status === 'connected') {
         isSSHActive = true;
+        terminalBridge.setSSHActive(true);
       }
     }
   });
@@ -108,8 +128,17 @@ function initializeStores(): void {
   serverStore = new ServerStore(credentialStore);
   chatStore = new ChatStore();
   settingsStore = new SettingsStore();
-  llmService = new LLMService(credentialStore);
-  console.log('Stores initialized');
+  promptStore = new PromptStore();
+  
+  // Initialize agent components
+  terminalBridge = new TerminalBridge();
+  agentExecutor = new AgentExecutor(terminalBridge);
+  
+  // Initialize LLM service with agent
+  llmService = new LLMService(credentialStore, promptStore);
+  llmService.setAgentExecutor(agentExecutor);
+  
+  console.log('Stores and agent initialized');
   console.log(`Secure storage available: ${credentialStore.isAvailable()}`);
 }
 
@@ -184,6 +213,7 @@ function setupIpcHandlers(): void {
       
       if (success) {
         isSSHActive = true;
+        terminalBridge.setSSHManager(sshManager, true);
         return { success: true };
       } else {
         return { success: false, error: 'Connection failed' };
@@ -198,6 +228,7 @@ function setupIpcHandlers(): void {
       sshManager.disconnect();
     }
     isSSHActive = false;
+    terminalBridge.setSSHActive(false);
 
     // Clear terminal and show message
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -445,6 +476,70 @@ function setupIpcHandlers(): void {
   // Delete API key
   ipcMain.handle(IPC_CHANNELS.SETTINGS_DELETE_API_KEY, (_, provider: LLMProvider) => {
     return llmService.deleteAPIKey(provider);
+  });
+
+  // ============== PROMPT HANDLERS ==============
+
+  // Get all prompts
+  ipcMain.handle(IPC_CHANNELS.PROMPT_LIST, () => {
+    return promptStore.getAll();
+  });
+
+  // Get single prompt
+  ipcMain.handle(IPC_CHANNELS.PROMPT_GET, (_, id: string) => {
+    return promptStore.get(id);
+  });
+
+  // Get active prompt
+  ipcMain.handle(IPC_CHANNELS.PROMPT_GET_ACTIVE, () => {
+    return promptStore.getActive();
+  });
+
+  // Create prompt
+  ipcMain.handle(IPC_CHANNELS.PROMPT_CREATE, (_, data: PromptFormData) => {
+    return promptStore.create(data);
+  });
+
+  // Update prompt
+  ipcMain.handle(IPC_CHANNELS.PROMPT_UPDATE, (_, id: string, data: Partial<PromptFormData>) => {
+    return promptStore.update(id, data);
+  });
+
+  // Delete prompt
+  ipcMain.handle(IPC_CHANNELS.PROMPT_DELETE, (_, id: string) => {
+    return promptStore.delete(id);
+  });
+
+  // Set active prompt
+  ipcMain.handle(IPC_CHANNELS.PROMPT_SET_ACTIVE, (_, id: string) => {
+    promptStore.setActive(id);
+  });
+
+  // Set default prompt
+  ipcMain.handle(IPC_CHANNELS.PROMPT_SET_DEFAULT, (_, id: string) => {
+    promptStore.setDefault(id);
+  });
+
+  // Reset built-in prompt
+  ipcMain.handle(IPC_CHANNELS.PROMPT_RESET_BUILT_IN, (_, id: string) => {
+    return promptStore.resetBuiltIn(id);
+  });
+
+  // Agent handlers
+  ipcMain.handle(IPC_CHANNELS.AGENT_EXECUTE_COMMAND, async (_, request: CommandRequest) => {
+    return agentExecutor.executeCommand(request);
+  });
+
+  ipcMain.on(IPC_CHANNELS.AGENT_CANCEL_COMMAND, (_, commandId: string) => {
+    agentExecutor.cancelCommand(commandId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.AGENT_GET_CONTEXT, () => {
+    return agentExecutor.getTerminalContext();
+  });
+
+  ipcMain.on(IPC_CHANNELS.AGENT_APPROVAL_RESPONSE, (_, response: CommandApprovalResponse) => {
+    agentExecutor.handleApprovalResponse(response);
   });
 }
 

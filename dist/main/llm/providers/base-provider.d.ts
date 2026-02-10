@@ -11,7 +11,7 @@ export declare abstract class BaseLLMProvider implements ILLMProvider {
     /**
      * Send a message with streaming response
      */
-    abstract streamMessage(model: string, messages: LLMMessage[], options: StreamOptions, callbacks: StreamCallbacks): Promise<void>;
+    abstract streamMessage(model: string, messages: LLMMessage[], options: StreamOptions, callbacks: StreamCallbacks, systemPrompt: string): Promise<void>;
     /**
      * Test if API key is valid
      */
@@ -37,7 +37,8 @@ export declare abstract class BaseLLMProvider implements ILLMProvider {
     protected createUsage(model: string, inputTokens: number, outputTokens: number): TokenUsage;
     /**
      * Format messages for provider-specific API
+     * Note: systemPrompt parameter is optional as not all providers need it in formatMessages
      */
-    protected abstract formatMessages(messages: LLMMessage[]): any;
+    protected abstract formatMessages(messages: LLMMessage[], systemPrompt?: string): any;
 }
 //# sourceMappingURL=base-provider.d.ts.map

@@ -9,17 +9,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.OpenAIProvider = void 0;
 const openai_1 = __importDefault(require("openai"));
 const base_provider_1 = require("./base-provider");
-const SYSTEM_PROMPT = `You are a helpful AI assistant integrated into a Raspberry Pi management tool called "Pi Assistant". 
-
-Your role is to help users:
-- Understand Linux/Raspberry Pi concepts
-- Write and explain shell commands
-- Troubleshoot system issues
-- Provide guidance on system administration tasks
-
-Be concise but thorough. When suggesting commands, explain what they do. If a task could be risky (like deleting files or changing system settings), warn the user first.
-
-Note: In a future update, you'll be able to execute commands directly on the user's Pi. For now, provide commands the user can copy and run themselves.`;
 class OpenAIProvider extends base_provider_1.BaseLLMProvider {
     constructor() {
         super(...arguments);
@@ -48,20 +37,27 @@ class OpenAIProvider extends base_provider_1.BaseLLMProvider {
     /**
      * Stream message to GPT
      */
-    async streamMessage(model, messages, options, callbacks) {
+    async streamMessage(model, messages, options, callbacks, systemPrompt) {
         const client = this.getClient();
-        const formattedMessages = this.formatMessages(messages);
+        const formattedMessages = this.formatMessages(messages, systemPrompt);
         try {
-            const stream = await client.chat.completions.create({
+            const requestOptions = {
                 model,
                 max_tokens: options.maxTokens || 4096,
                 temperature: options.temperature ?? 0.7,
                 messages: formattedMessages,
                 stream: true,
                 stream_options: { include_usage: true }
-            });
+            };
+            // Add tools if provided
+            if (options.tools && options.tools.length > 0) {
+                requestOptions.tools = options.tools;
+            }
+            const stream = await client.chat.completions.create(requestOptions);
             let inputTokens = 0;
             let outputTokens = 0;
+            const toolCalls = [];
+            let currentToolCallIndex = -1;
             // Handle abort signal
             if (options.signal) {
                 options.signal.addEventListener('abort', () => {
@@ -76,11 +72,56 @@ class OpenAIProvider extends base_provider_1.BaseLLMProvider {
                         isComplete: false
                     });
                 }
+                // Handle tool calls
+                if (delta?.tool_calls) {
+                    for (const tc of delta.tool_calls) {
+                        if (tc.index !== undefined) {
+                            if (tc.index > currentToolCallIndex) {
+                                // New tool call
+                                currentToolCallIndex = tc.index;
+                                toolCalls.push({
+                                    id: tc.id || '',
+                                    name: tc.function?.name || '',
+                                    arguments: {}
+                                });
+                            }
+                            // Accumulate arguments
+                            if (tc.function?.arguments) {
+                                const current = toolCalls[currentToolCallIndex];
+                                if (typeof current.arguments === 'string') {
+                                    current.arguments += tc.function.arguments;
+                                }
+                                else {
+                                    current.arguments = tc.function.arguments;
+                                }
+                            }
+                        }
+                    }
+                }
                 // Get usage from final chunk
                 if (chunk.usage) {
                     inputTokens = chunk.usage.prompt_tokens;
                     outputTokens = chunk.usage.completion_tokens;
                 }
+            }
+            // Parse tool call arguments
+            for (const tc of toolCalls) {
+                if (typeof tc.arguments === 'string') {
+                    try {
+                        tc.arguments = JSON.parse(tc.arguments);
+                    }
+                    catch {
+                        tc.arguments = { raw: tc.arguments };
+                    }
+                }
+            }
+            // Send final chunk with tool calls if any
+            if (toolCalls.length > 0) {
+                callbacks.onChunk({
+                    content: '',
+                    isComplete: true,
+                    toolCalls
+                });
             }
             callbacks.onComplete(this.createUsage(model, inputTokens, outputTokens));
         }
@@ -117,14 +158,37 @@ class OpenAIProvider extends base_provider_1.BaseLLMProvider {
     /**
      * Format messages for OpenAI API
      */
-    formatMessages(messages) {
-        // Add system message at the start
+    formatMessages(messages, systemPrompt) {
         const formatted = [
-            { role: 'system', content: SYSTEM_PROMPT }
+            { role: 'system', content: systemPrompt }
         ];
-        // Add conversation messages (skip any existing system messages)
         for (const msg of messages) {
-            if (msg.role !== 'system') {
+            if (msg.role === 'system')
+                continue;
+            if (msg.role === 'tool') {
+                // Tool result message
+                formatted.push({
+                    role: 'tool',
+                    tool_call_id: msg.toolCallId,
+                    content: msg.content
+                });
+            }
+            else if (msg.toolCalls) {
+                // Assistant message with tool calls
+                formatted.push({
+                    role: 'assistant',
+                    content: msg.content || null,
+                    tool_calls: msg.toolCalls.map((tc) => ({
+                        id: tc.id,
+                        type: 'function',
+                        function: {
+                            name: tc.name,
+                            arguments: JSON.stringify(tc.arguments)
+                        }
+                    }))
+                });
+            }
+            else {
                 formatted.push({
                     role: msg.role,
                     content: msg.content

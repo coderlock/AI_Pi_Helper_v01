@@ -21,7 +21,7 @@ export declare class MoonshotProvider extends BaseLLMProvider {
     /**
      * Stream message to Kimi
      */
-    streamMessage(model: string, messages: LLMMessage[], options: StreamOptions, callbacks: StreamCallbacks): Promise<void>;
+    streamMessage(model: string, messages: LLMMessage[], options: StreamOptions, callbacks: StreamCallbacks, systemPrompt: string): Promise<void>;
     /**
      * Test API key validity
      */
@@ -32,7 +32,7 @@ export declare class MoonshotProvider extends BaseLLMProvider {
     /**
      * Format messages for Moonshot API (OpenAI-compatible)
      */
-    protected formatMessages(messages: LLMMessage[]): OpenAI.ChatCompletionMessageParam[];
+    protected formatMessages(messages: LLMMessage[], systemPrompt: string): OpenAI.ChatCompletionMessageParam[];
     /**
      * Rough token estimation (for when API doesn't return usage)
      * ~4 characters per token for English text

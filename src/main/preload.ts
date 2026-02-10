@@ -3,8 +3,8 @@
  * Securely exposes Electron APIs to the renderer process
  */
 
-import { contextBridge, ipcRenderer } from 'electron';
-import { IPC_CHANNELS, ElectronAPI } from '../shared/types';
+import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
+import { IPC_CHANNELS, ElectronAPI, AgentStatusUpdate, CommandApprovalRequest } from '../shared/types';
 
 // Store callbacks for cleanup
 const callbacks = new Map<string, Set<(...args: any[]) => void>>();
@@ -192,6 +192,65 @@ const electronAPI: ElectronAPI = {
 
   deleteAPIKey: (provider) =>
     ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_DELETE_API_KEY, provider),
+
+  // Prompts
+  getPrompts: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROMPT_LIST),
+
+  getPrompt: (id: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROMPT_GET, id),
+
+  getActivePrompt: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROMPT_GET_ACTIVE),
+
+  createPrompt: (data) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROMPT_CREATE, data),
+
+  updatePrompt: (id: string, data) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROMPT_UPDATE, id, data),
+
+  deletePrompt: (id: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROMPT_DELETE, id),
+
+  setActivePrompt: (id: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROMPT_SET_ACTIVE, id),
+
+  setDefaultPrompt: (id: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROMPT_SET_DEFAULT, id),
+
+  resetBuiltInPrompt: (id: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROMPT_RESET_BUILT_IN, id),
+
+  // Agent
+  executeCommand: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AGENT_EXECUTE_COMMAND, request),
+
+  cancelCommand: (commandId: string) => {
+    ipcRenderer.send(IPC_CHANNELS.AGENT_CANCEL_COMMAND, commandId);
+  },
+
+  getTerminalContext: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.AGENT_GET_CONTEXT),
+
+  onAgentStatusUpdate: (callback) => {
+    const wrappedCallback = (_event: IpcRendererEvent, status: AgentStatusUpdate) => {
+      callback(status);
+    };
+    registerCallback(IPC_CHANNELS.AGENT_STATUS_UPDATE, wrappedCallback);
+    ipcRenderer.on(IPC_CHANNELS.AGENT_STATUS_UPDATE, wrappedCallback);
+  },
+
+  onAgentRequestApproval: (callback) => {
+    const wrappedCallback = (_event: IpcRendererEvent, request: CommandApprovalRequest) => {
+      callback(request);
+    };
+    registerCallback(IPC_CHANNELS.AGENT_REQUEST_APPROVAL, wrappedCallback);
+    ipcRenderer.on(IPC_CHANNELS.AGENT_REQUEST_APPROVAL, wrappedCallback);
+  },
+
+  sendAgentApprovalResponse: (response) => {
+    ipcRenderer.send(IPC_CHANNELS.AGENT_APPROVAL_RESPONSE, response);
+  },
 
   // Utility
   getPlatform: () => {

@@ -3,6 +3,31 @@
  * Used by both main and renderer processes
  */
 
+// ============== AGENT TYPES (shared) ==============
+
+import type { 
+  AgentState, 
+  AgentStatusUpdate, 
+  CommandRequest, 
+  CommandResult,
+  TerminalContext,
+  CommandApprovalRequest,
+  CommandApprovalResponse 
+} from '../main/agent/types';
+
+// Re-export for renderer use
+export type { 
+  AgentState, 
+  AgentStatusUpdate, 
+  CommandRequest, 
+  CommandResult,
+  TerminalContext,
+  CommandApprovalRequest,
+  CommandApprovalResponse 
+};
+
+// ============== TERMINAL TYPES ==============
+
 // Terminal resize dimensions
 export interface TerminalDimensions {
   cols: number;
@@ -198,8 +223,10 @@ export interface LLMRequestOptions {
  * LLM message format (for API calls)
  */
 export interface LLMMessage {
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  toolCalls?: any[];  // Tool calls made by assistant
+  toolCallId?: string;  // ID of the tool call this message responds to
 }
 
 /**
@@ -230,6 +257,8 @@ export interface LLMStreamChunk {
   content: string;
   isComplete: boolean;
   usage?: TokenUsage;  // Only on final chunk
+  toolCalls?: any[];  // Tool calls requested by LLM
+  isToolResult?: boolean;  // True if this chunk is a tool result notification
 }
 
 /**
@@ -271,6 +300,53 @@ export interface APIKeyStatus {
   isSet: boolean;
   isValid?: boolean;  // Only known after test
   lastTested?: number;
+}
+
+// ============== PROMPT TYPES ==============
+
+/**
+ * System prompt definition
+ */
+export interface SystemPrompt {
+  id: string;
+  name: string;
+  content: string;
+  description?: string;
+  isBuiltIn: boolean;        // True for default templates
+  isDefault: boolean;        // True for the currently selected default
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Prompt creation/update data
+ */
+export interface PromptFormData {
+  name: string;
+  content: string;
+  description?: string;
+}
+
+/**
+ * Prompt list item (for dropdown display)
+ */
+export interface PromptListItem {
+  id: string;
+  name: string;
+  description?: string;
+  isBuiltIn: boolean;
+  isDefault: boolean;
+}
+
+/**
+ * Prompt change event (for chat display)
+ */
+export interface PromptChangeEvent {
+  previousPromptId: string | null;
+  previousPromptName: string | null;
+  newPromptId: string;
+  newPromptName: string;
+  timestamp: number;
 }
 
 // IPC channel names as constants to prevent typos
@@ -328,6 +404,25 @@ export const IPC_CHANNELS = {
   SETTINGS_GET_API_KEY_STATUS: 'settings:get-api-key-status',
   SETTINGS_SET_API_KEY: 'settings:set-api-key',
   SETTINGS_DELETE_API_KEY: 'settings:delete-api-key',
+
+  // Prompts
+  PROMPT_LIST: 'prompt:list',
+  PROMPT_GET: 'prompt:get',
+  PROMPT_GET_ACTIVE: 'prompt:get-active',
+  PROMPT_CREATE: 'prompt:create',
+  PROMPT_UPDATE: 'prompt:update',
+  PROMPT_DELETE: 'prompt:delete',
+  PROMPT_SET_ACTIVE: 'prompt:set-active',
+  PROMPT_SET_DEFAULT: 'prompt:set-default',
+  PROMPT_RESET_BUILT_IN: 'prompt:reset-built-in',
+
+  // Agent
+  AGENT_EXECUTE_COMMAND: 'agent:execute-command',
+  AGENT_CANCEL_COMMAND: 'agent:cancel-command',
+  AGENT_GET_CONTEXT: 'agent:get-context',
+  AGENT_STATUS_UPDATE: 'agent:status-update',
+  AGENT_REQUEST_APPROVAL: 'agent:request-approval',
+  AGENT_APPROVAL_RESPONSE: 'agent:approval-response',
 } as const;
 
 // Electron API exposed to renderer via preload
@@ -394,6 +489,25 @@ export interface ElectronAPI {
   getAPIKeyStatus: () => Promise<APIKeyStatus[]>;
   setAPIKey: (provider: LLMProvider, apiKey: string) => Promise<boolean>;
   deleteAPIKey: (provider: LLMProvider) => Promise<boolean>;
+
+  // Prompts
+  getPrompts: () => Promise<PromptListItem[]>;
+  getPrompt: (id: string) => Promise<SystemPrompt | null>;
+  getActivePrompt: () => Promise<SystemPrompt>;
+  createPrompt: (data: PromptFormData) => Promise<SystemPrompt>;
+  updatePrompt: (id: string, data: Partial<PromptFormData>) => Promise<SystemPrompt | null>;
+  deletePrompt: (id: string) => Promise<boolean>;
+  setActivePrompt: (id: string) => Promise<void>;
+  setDefaultPrompt: (id: string) => Promise<void>;
+  resetBuiltInPrompt: (id: string) => Promise<SystemPrompt>;
+
+  // Agent
+  executeCommand: (request: CommandRequest) => Promise<CommandResult>;
+  cancelCommand: (commandId: string) => void;
+  getTerminalContext: () => Promise<TerminalContext>;
+  onAgentStatusUpdate: (callback: (status: AgentStatusUpdate) => void) => void;
+  onAgentRequestApproval: (callback: (request: CommandApprovalRequest) => void) => void;
+  sendAgentApprovalResponse: (response: CommandApprovalResponse) => void;
 
   // Utility
   getPlatform: () => NodeJS.Platform;

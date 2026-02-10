@@ -11,7 +11,7 @@ export interface ILLMProvider {
     /**
      * Send a message and get streaming response
      */
-    streamMessage(model: string, messages: LLMMessage[], options: StreamOptions, callbacks: StreamCallbacks): Promise<void>;
+    streamMessage(model: string, messages: LLMMessage[], options: StreamOptions, callbacks: StreamCallbacks, systemPrompt: string): Promise<void>;
     /**
      * Test if API key is valid
      */
@@ -35,6 +35,7 @@ export interface StreamOptions {
     maxTokens?: number;
     temperature?: number;
     signal?: AbortSignal;
+    tools?: any[];
 }
 /**
  * Stream callbacks

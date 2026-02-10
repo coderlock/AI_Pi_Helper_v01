@@ -134,6 +134,39 @@ const electronAPI = {
     getAPIKeyStatus: () => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.SETTINGS_GET_API_KEY_STATUS),
     setAPIKey: (provider, apiKey) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.SETTINGS_SET_API_KEY, provider, apiKey),
     deleteAPIKey: (provider) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.SETTINGS_DELETE_API_KEY, provider),
+    // Prompts
+    getPrompts: () => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.PROMPT_LIST),
+    getPrompt: (id) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.PROMPT_GET, id),
+    getActivePrompt: () => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.PROMPT_GET_ACTIVE),
+    createPrompt: (data) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.PROMPT_CREATE, data),
+    updatePrompt: (id, data) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.PROMPT_UPDATE, id, data),
+    deletePrompt: (id) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.PROMPT_DELETE, id),
+    setActivePrompt: (id) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.PROMPT_SET_ACTIVE, id),
+    setDefaultPrompt: (id) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.PROMPT_SET_DEFAULT, id),
+    resetBuiltInPrompt: (id) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.PROMPT_RESET_BUILT_IN, id),
+    // Agent
+    executeCommand: (request) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.AGENT_EXECUTE_COMMAND, request),
+    cancelCommand: (commandId) => {
+        electron_1.ipcRenderer.send(types_1.IPC_CHANNELS.AGENT_CANCEL_COMMAND, commandId);
+    },
+    getTerminalContext: () => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.AGENT_GET_CONTEXT),
+    onAgentStatusUpdate: (callback) => {
+        const wrappedCallback = (_event, status) => {
+            callback(status);
+        };
+        registerCallback(types_1.IPC_CHANNELS.AGENT_STATUS_UPDATE, wrappedCallback);
+        electron_1.ipcRenderer.on(types_1.IPC_CHANNELS.AGENT_STATUS_UPDATE, wrappedCallback);
+    },
+    onAgentRequestApproval: (callback) => {
+        const wrappedCallback = (_event, request) => {
+            callback(request);
+        };
+        registerCallback(types_1.IPC_CHANNELS.AGENT_REQUEST_APPROVAL, wrappedCallback);
+        electron_1.ipcRenderer.on(types_1.IPC_CHANNELS.AGENT_REQUEST_APPROVAL, wrappedCallback);
+    },
+    sendAgentApprovalResponse: (response) => {
+        electron_1.ipcRenderer.send(types_1.IPC_CHANNELS.AGENT_APPROVAL_RESPONSE, response);
+    },
     // Utility
     getPlatform: () => {
         return process.platform;

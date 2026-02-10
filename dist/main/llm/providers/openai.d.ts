@@ -20,7 +20,7 @@ export declare class OpenAIProvider extends BaseLLMProvider {
     /**
      * Stream message to GPT
      */
-    streamMessage(model: string, messages: LLMMessage[], options: StreamOptions, callbacks: StreamCallbacks): Promise<void>;
+    streamMessage(model: string, messages: LLMMessage[], options: StreamOptions, callbacks: StreamCallbacks, systemPrompt: string): Promise<void>;
     /**
      * Test API key validity
      */
@@ -31,7 +31,7 @@ export declare class OpenAIProvider extends BaseLLMProvider {
     /**
      * Format messages for OpenAI API
      */
-    protected formatMessages(messages: LLMMessage[]): OpenAI.ChatCompletionMessageParam[];
+    protected formatMessages(messages: LLMMessage[], systemPrompt: string): OpenAI.ChatCompletionMessageParam[];
     /**
      * Format error for user display
      */

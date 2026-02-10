@@ -9,17 +9,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AnthropicProvider = void 0;
 const sdk_1 = __importDefault(require("@anthropic-ai/sdk"));
 const base_provider_1 = require("./base-provider");
-const SYSTEM_PROMPT = `You are a helpful AI assistant integrated into a Raspberry Pi management tool called "Pi Assistant". 
-
-Your role is to help users:
-- Understand Linux/Raspberry Pi concepts
-- Write and explain shell commands
-- Troubleshoot system issues
-- Provide guidance on system administration tasks
-
-Be concise but thorough. When suggesting commands, explain what they do. If a task could be risky (like deleting files or changing system settings), warn the user first.
-
-Note: In a future update, you'll be able to execute commands directly on the user's Pi. For now, provide commands the user can copy and run themselves.`;
 class AnthropicProvider extends base_provider_1.BaseLLMProvider {
     constructor() {
         super(...arguments);
@@ -48,20 +37,27 @@ class AnthropicProvider extends base_provider_1.BaseLLMProvider {
     /**
      * Stream message to Claude
      */
-    async streamMessage(model, messages, options, callbacks) {
+    async streamMessage(model, messages, options, callbacks, systemPrompt) {
         const client = this.getClient();
         // Separate system message from conversation
         const formattedMessages = this.formatMessages(messages);
         try {
-            const stream = await client.messages.stream({
+            const requestOptions = {
                 model,
                 max_tokens: options.maxTokens || 4096,
                 temperature: options.temperature ?? 0.7,
-                system: SYSTEM_PROMPT,
+                system: systemPrompt,
                 messages: formattedMessages
-            });
+            };
+            // Add tools if provided
+            if (options.tools && options.tools.length > 0) {
+                requestOptions.tools = options.tools;
+            }
+            const stream = await client.messages.stream(requestOptions);
             let inputTokens = 0;
             let outputTokens = 0;
+            let currentToolCall = null;
+            const toolCalls = [];
             // Handle abort signal
             if (options.signal) {
                 options.signal.addEventListener('abort', () => {
@@ -69,7 +65,17 @@ class AnthropicProvider extends base_provider_1.BaseLLMProvider {
                 });
             }
             for await (const event of stream) {
-                if (event.type === 'content_block_delta') {
+                if (event.type === 'content_block_start') {
+                    const block = event.content_block;
+                    if (block.type === 'tool_use') {
+                        currentToolCall = {
+                            id: block.id,
+                            name: block.name,
+                            arguments: {}
+                        };
+                    }
+                }
+                else if (event.type === 'content_block_delta') {
                     const delta = event.delta;
                     if (delta.type === 'text_delta' && delta.text) {
                         callbacks.onChunk({
@@ -77,9 +83,18 @@ class AnthropicProvider extends base_provider_1.BaseLLMProvider {
                             isComplete: false
                         });
                     }
+                    else if (delta.type === 'input_json_delta' && currentToolCall) {
+                        // Accumulate tool arguments (streamed as JSON)
+                        // This is simplified - full implementation would parse incrementally
+                    }
+                }
+                else if (event.type === 'content_block_stop') {
+                    if (currentToolCall) {
+                        toolCalls.push(currentToolCall);
+                        currentToolCall = null;
+                    }
                 }
                 else if (event.type === 'message_delta') {
-                    // Final usage stats
                     const usage = event.usage;
                     if (usage) {
                         outputTokens = usage.output_tokens || 0;
@@ -92,10 +107,34 @@ class AnthropicProvider extends base_provider_1.BaseLLMProvider {
                     }
                 }
             }
-            // Final message
+            // Get final message for complete tool call arguments
             const finalMessage = await stream.finalMessage();
             inputTokens = finalMessage.usage.input_tokens;
             outputTokens = finalMessage.usage.output_tokens;
+            // Extract tool calls from final message
+            for (const block of finalMessage.content) {
+                if (block.type === 'tool_use') {
+                    const existingIndex = toolCalls.findIndex(tc => tc.id === block.id);
+                    if (existingIndex >= 0) {
+                        toolCalls[existingIndex].arguments = block.input;
+                    }
+                    else {
+                        toolCalls.push({
+                            id: block.id,
+                            name: block.name,
+                            arguments: block.input
+                        });
+                    }
+                }
+            }
+            // Send final chunk with tool calls if any
+            if (toolCalls.length > 0) {
+                callbacks.onChunk({
+                    content: '',
+                    isComplete: true,
+                    toolCalls
+                });
+            }
             callbacks.onComplete(this.createUsage(model, inputTokens, outputTokens));
         }
         catch (error) {
@@ -132,13 +171,45 @@ class AnthropicProvider extends base_provider_1.BaseLLMProvider {
      * Format messages for Anthropic API
      */
     formatMessages(messages) {
-        // Filter out system messages (handled separately)
-        return messages
-            .filter(m => m.role !== 'system')
-            .map(m => ({
-            role: m.role,
-            content: m.content
-        }));
+        const formatted = [];
+        for (const msg of messages) {
+            if (msg.role === 'system')
+                continue;
+            if (msg.role === 'tool') {
+                // Tool result message
+                formatted.push({
+                    role: 'user',
+                    content: [{
+                            type: 'tool_result',
+                            tool_use_id: msg.toolCallId,
+                            content: msg.content
+                        }]
+                });
+            }
+            else if (msg.toolCalls) {
+                // Assistant message with tool calls
+                const content = [];
+                if (msg.content) {
+                    content.push({ type: 'text', text: msg.content });
+                }
+                for (const tc of msg.toolCalls) {
+                    content.push({
+                        type: 'tool_use',
+                        id: tc.id,
+                        name: tc.name,
+                        input: tc.arguments
+                    });
+                }
+                formatted.push({ role: 'assistant', content });
+            }
+            else {
+                formatted.push({
+                    role: msg.role,
+                    content: msg.content
+                });
+            }
+        }
+        return formatted;
     }
     /**
      * Format error for user display

@@ -20,7 +20,8 @@ export abstract class BaseLLMProvider implements ILLMProvider {
     model: string,
     messages: LLMMessage[],
     options: StreamOptions,
-    callbacks: StreamCallbacks
+    callbacks: StreamCallbacks,
+    systemPrompt: string
   ): Promise<void>;
 
   /**
@@ -70,6 +71,7 @@ export abstract class BaseLLMProvider implements ILLMProvider {
 
   /**
    * Format messages for provider-specific API
+   * Note: systemPrompt parameter is optional as not all providers need it in formatMessages
    */
-  protected abstract formatMessages(messages: LLMMessage[]): any;
+  protected abstract formatMessages(messages: LLMMessage[], systemPrompt?: string): any;
 }

@@ -27,6 +27,8 @@ export class ChatContainer {
   private renderedMessageCount: number = 0; // Track rendered messages for incremental rendering
   private currentRequestId: string | null = null;
   private currentStreamingMessage: string = '';
+  private lastPromptId: string = '';
+  private lastPromptName: string = '';
 
   constructor(options: ChatContainerOptions) {
     this.container = options.container;
@@ -51,6 +53,11 @@ export class ChatContainer {
 
     // Set up streaming listeners
     this.setupStreamingListeners();
+
+    // Load current prompt info
+    const activePrompt = await window.electronAPI.getActivePrompt();
+    this.lastPromptId = activePrompt.id;
+    this.lastPromptName = activePrompt.name;
 
     console.log('Chat container initialized');
   }
@@ -509,5 +516,46 @@ export class ChatContainer {
    */
   async refresh(): Promise<void> {
     await this.loadMessages();
+  }
+
+  /**
+   * Handle prompt change
+   */
+  handlePromptChange(promptId: string, promptName: string): void {
+    // Skip if same prompt
+    if (promptId === this.lastPromptId) return;
+
+    // Add visual indicator in chat
+    if (this.messages.length > 0 && this.lastPromptId) {
+      this.addPromptChangeIndicator(this.lastPromptName, promptName);
+    }
+
+    this.lastPromptId = promptId;
+    this.lastPromptName = promptName;
+  }
+
+  /**
+   * Add prompt change indicator to chat
+   */
+  private addPromptChangeIndicator(fromName: string, toName: string): void {
+    const indicator = document.createElement('div');
+    indicator.className = 'prompt-change-indicator';
+    indicator.innerHTML = `
+      <span class="prompt-change-line"></span>
+      <span class="prompt-change-text">Switched to "${this.escapeHtml(toName)}"</span>
+      <span class="prompt-change-line"></span>
+    `;
+    
+    this.messagesContainer.appendChild(indicator);
+    this.scrollToBottom();
+  }
+
+  /**
+   * Escape HTML for safe display
+   */
+  private escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 }

@@ -18,7 +18,8 @@ export interface ILLMProvider {
     model: string,
     messages: LLMMessage[],
     options: StreamOptions,
-    callbacks: StreamCallbacks
+    callbacks: StreamCallbacks,
+    systemPrompt: string
   ): Promise<void>;
 
   /**
@@ -44,6 +45,7 @@ export interface StreamOptions {
   maxTokens?: number;
   temperature?: number;
   signal?: AbortSignal;
+  tools?: any[];  // Tool definitions for the LLM
 }
 
 /**

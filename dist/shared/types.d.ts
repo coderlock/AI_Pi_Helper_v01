@@ -2,6 +2,8 @@
  * Shared TypeScript interfaces and types
  * Used by both main and renderer processes
  */
+import type { AgentState, AgentStatusUpdate, CommandRequest, CommandResult, TerminalContext, CommandApprovalRequest, CommandApprovalResponse } from '../main/agent/types';
+export type { AgentState, AgentStatusUpdate, CommandRequest, CommandResult, TerminalContext, CommandApprovalRequest, CommandApprovalResponse };
 export interface TerminalDimensions {
     cols: number;
     rows: number;
@@ -171,8 +173,10 @@ export interface LLMRequestOptions {
  * LLM message format (for API calls)
  */
 export interface LLMMessage {
-    role: 'user' | 'assistant' | 'system';
+    role: 'user' | 'assistant' | 'system' | 'tool';
     content: string;
+    toolCalls?: any[];
+    toolCallId?: string;
 }
 /**
  * Token usage tracking
@@ -200,6 +204,8 @@ export interface LLMStreamChunk {
     content: string;
     isComplete: boolean;
     usage?: TokenUsage;
+    toolCalls?: any[];
+    isToolResult?: boolean;
 }
 /**
  * Session usage statistics
@@ -238,6 +244,47 @@ export interface APIKeyStatus {
     isSet: boolean;
     isValid?: boolean;
     lastTested?: number;
+}
+/**
+ * System prompt definition
+ */
+export interface SystemPrompt {
+    id: string;
+    name: string;
+    content: string;
+    description?: string;
+    isBuiltIn: boolean;
+    isDefault: boolean;
+    createdAt: number;
+    updatedAt: number;
+}
+/**
+ * Prompt creation/update data
+ */
+export interface PromptFormData {
+    name: string;
+    content: string;
+    description?: string;
+}
+/**
+ * Prompt list item (for dropdown display)
+ */
+export interface PromptListItem {
+    id: string;
+    name: string;
+    description?: string;
+    isBuiltIn: boolean;
+    isDefault: boolean;
+}
+/**
+ * Prompt change event (for chat display)
+ */
+export interface PromptChangeEvent {
+    previousPromptId: string | null;
+    previousPromptName: string | null;
+    newPromptId: string;
+    newPromptName: string;
+    timestamp: number;
 }
 export declare const IPC_CHANNELS: {
     readonly TERMINAL_DATA: "terminal:data";
@@ -280,6 +327,21 @@ export declare const IPC_CHANNELS: {
     readonly SETTINGS_GET_API_KEY_STATUS: "settings:get-api-key-status";
     readonly SETTINGS_SET_API_KEY: "settings:set-api-key";
     readonly SETTINGS_DELETE_API_KEY: "settings:delete-api-key";
+    readonly PROMPT_LIST: "prompt:list";
+    readonly PROMPT_GET: "prompt:get";
+    readonly PROMPT_GET_ACTIVE: "prompt:get-active";
+    readonly PROMPT_CREATE: "prompt:create";
+    readonly PROMPT_UPDATE: "prompt:update";
+    readonly PROMPT_DELETE: "prompt:delete";
+    readonly PROMPT_SET_ACTIVE: "prompt:set-active";
+    readonly PROMPT_SET_DEFAULT: "prompt:set-default";
+    readonly PROMPT_RESET_BUILT_IN: "prompt:reset-built-in";
+    readonly AGENT_EXECUTE_COMMAND: "agent:execute-command";
+    readonly AGENT_CANCEL_COMMAND: "agent:cancel-command";
+    readonly AGENT_GET_CONTEXT: "agent:get-context";
+    readonly AGENT_STATUS_UPDATE: "agent:status-update";
+    readonly AGENT_REQUEST_APPROVAL: "agent:request-approval";
+    readonly AGENT_APPROVAL_RESPONSE: "agent:approval-response";
 };
 export interface ElectronAPI {
     sendTerminalInput: (data: string) => void;
@@ -362,6 +424,21 @@ export interface ElectronAPI {
     getAPIKeyStatus: () => Promise<APIKeyStatus[]>;
     setAPIKey: (provider: LLMProvider, apiKey: string) => Promise<boolean>;
     deleteAPIKey: (provider: LLMProvider) => Promise<boolean>;
+    getPrompts: () => Promise<PromptListItem[]>;
+    getPrompt: (id: string) => Promise<SystemPrompt | null>;
+    getActivePrompt: () => Promise<SystemPrompt>;
+    createPrompt: (data: PromptFormData) => Promise<SystemPrompt>;
+    updatePrompt: (id: string, data: Partial<PromptFormData>) => Promise<SystemPrompt | null>;
+    deletePrompt: (id: string) => Promise<boolean>;
+    setActivePrompt: (id: string) => Promise<void>;
+    setDefaultPrompt: (id: string) => Promise<void>;
+    resetBuiltInPrompt: (id: string) => Promise<SystemPrompt>;
+    executeCommand: (request: CommandRequest) => Promise<CommandResult>;
+    cancelCommand: (commandId: string) => void;
+    getTerminalContext: () => Promise<TerminalContext>;
+    onAgentStatusUpdate: (callback: (status: AgentStatusUpdate) => void) => void;
+    onAgentRequestApproval: (callback: (request: CommandApprovalRequest) => void) => void;
+    sendAgentApprovalResponse: (response: CommandApprovalResponse) => void;
     getPlatform: () => NodeJS.Platform;
     removeAllListeners: (channel: string) => void;
 }

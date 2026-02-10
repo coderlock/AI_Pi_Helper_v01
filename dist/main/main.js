@@ -47,6 +47,9 @@ const server_store_1 = require("./store/server-store");
 const chat_store_1 = require("./store/chat-store");
 const llm_service_1 = require("./llm/llm-service");
 const settings_store_1 = require("./store/settings-store");
+const prompt_store_1 = require("./store/prompt-store");
+const terminal_bridge_1 = require("./agent/terminal-bridge");
+const agent_executor_1 = require("./agent/agent-executor");
 let mainWindow = null;
 let ptyManager = null;
 let sshManager = null;
@@ -56,6 +59,9 @@ let serverStore;
 let chatStore;
 let llmService;
 let settingsStore;
+let promptStore;
+let terminalBridge;
+let agentExecutor;
 /**
  * Create the main application window
  */
@@ -82,10 +88,18 @@ function createWindow() {
     }
     // Initialize PTY manager
     ptyManager = new pty_1.PtyManager(mainWindow);
+    // Add data listener for agent processing
+    ptyManager.addDataListener((data) => {
+        agentExecutor.processTerminalData(data);
+    });
     // Initialize SSH manager
     initializeSSHManager();
-    // Set main window for LLM service
+    // Set main window for LLM service and agent
     llmService.setMainWindow(mainWindow);
+    agentExecutor.setMainWindow(mainWindow);
+    // Set PTY manager and SSH manager for terminal bridge
+    terminalBridge.setPtyManager(ptyManager);
+    terminalBridge.setSSHManager(sshManager, isSSHActive);
     // Handle window close
     mainWindow.on('closed', () => {
         if (ptyManager) {
@@ -108,6 +122,8 @@ function initializeSSHManager() {
             if (mainWindow && !mainWindow.isDestroyed()) {
                 mainWindow.webContents.send(types_1.IPC_CHANNELS.TERMINAL_DATA, data);
             }
+            // Process for agent capture
+            agentExecutor.processTerminalData(data);
         },
         onStatus: (status, message) => {
             console.log(`SSH Status: ${status}${message ? ` - ${message}` : ''}`);
@@ -117,9 +133,11 @@ function initializeSSHManager() {
             // If disconnected or error, flag SSH as inactive
             if (status === 'disconnected' || status === 'error') {
                 isSSHActive = false;
+                terminalBridge.setSSHActive(false);
             }
             else if (status === 'connected') {
                 isSSHActive = true;
+                terminalBridge.setSSHActive(true);
             }
         }
     });
@@ -132,8 +150,14 @@ function initializeStores() {
     serverStore = new server_store_1.ServerStore(credentialStore);
     chatStore = new chat_store_1.ChatStore();
     settingsStore = new settings_store_1.SettingsStore();
-    llmService = new llm_service_1.LLMService(credentialStore);
-    console.log('Stores initialized');
+    promptStore = new prompt_store_1.PromptStore();
+    // Initialize agent components
+    terminalBridge = new terminal_bridge_1.TerminalBridge();
+    agentExecutor = new agent_executor_1.AgentExecutor(terminalBridge);
+    // Initialize LLM service with agent
+    llmService = new llm_service_1.LLMService(credentialStore, promptStore);
+    llmService.setAgentExecutor(agentExecutor);
+    console.log('Stores and agent initialized');
     console.log(`Secure storage available: ${credentialStore.isAvailable()}`);
 }
 /**
@@ -197,6 +221,7 @@ function setupIpcHandlers() {
             const success = await sshManager.connect(config);
             if (success) {
                 isSSHActive = true;
+                terminalBridge.setSSHManager(sshManager, true);
                 return { success: true };
             }
             else {
@@ -212,6 +237,7 @@ function setupIpcHandlers() {
             sshManager.disconnect();
         }
         isSSHActive = false;
+        terminalBridge.setSSHActive(false);
         // Clear terminal and show message
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send(types_1.IPC_CHANNELS.TERMINAL_DATA, '\x1b[2J\x1b[H');
@@ -411,6 +437,56 @@ function setupIpcHandlers() {
     // Delete API key
     electron_1.ipcMain.handle(types_1.IPC_CHANNELS.SETTINGS_DELETE_API_KEY, (_, provider) => {
         return llmService.deleteAPIKey(provider);
+    });
+    // ============== PROMPT HANDLERS ==============
+    // Get all prompts
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.PROMPT_LIST, () => {
+        return promptStore.getAll();
+    });
+    // Get single prompt
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.PROMPT_GET, (_, id) => {
+        return promptStore.get(id);
+    });
+    // Get active prompt
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.PROMPT_GET_ACTIVE, () => {
+        return promptStore.getActive();
+    });
+    // Create prompt
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.PROMPT_CREATE, (_, data) => {
+        return promptStore.create(data);
+    });
+    // Update prompt
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.PROMPT_UPDATE, (_, id, data) => {
+        return promptStore.update(id, data);
+    });
+    // Delete prompt
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.PROMPT_DELETE, (_, id) => {
+        return promptStore.delete(id);
+    });
+    // Set active prompt
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.PROMPT_SET_ACTIVE, (_, id) => {
+        promptStore.setActive(id);
+    });
+    // Set default prompt
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.PROMPT_SET_DEFAULT, (_, id) => {
+        promptStore.setDefault(id);
+    });
+    // Reset built-in prompt
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.PROMPT_RESET_BUILT_IN, (_, id) => {
+        return promptStore.resetBuiltIn(id);
+    });
+    // Agent handlers
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.AGENT_EXECUTE_COMMAND, async (_, request) => {
+        return agentExecutor.executeCommand(request);
+    });
+    electron_1.ipcMain.on(types_1.IPC_CHANNELS.AGENT_CANCEL_COMMAND, (_, commandId) => {
+        agentExecutor.cancelCommand(commandId);
+    });
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.AGENT_GET_CONTEXT, () => {
+        return agentExecutor.getTerminalContext();
+    });
+    electron_1.ipcMain.on(types_1.IPC_CHANNELS.AGENT_APPROVAL_RESPONSE, (_, response) => {
+        agentExecutor.handleApprovalResponse(response);
     });
 }
 /**

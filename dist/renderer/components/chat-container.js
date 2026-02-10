@@ -15,6 +15,8 @@ class ChatContainer {
         this.renderedMessageCount = 0; // Track rendered messages for incremental rendering
         this.currentRequestId = null;
         this.currentStreamingMessage = '';
+        this.lastPromptId = '';
+        this.lastPromptName = '';
         this.container = options.container;
         this.onSendMessage = options.onSendMessage;
     }
@@ -32,6 +34,10 @@ class ChatContainer {
         this.attachEventListeners();
         // Set up streaming listeners
         this.setupStreamingListeners();
+        // Load current prompt info
+        const activePrompt = await window.electronAPI.getActivePrompt();
+        this.lastPromptId = activePrompt.id;
+        this.lastPromptName = activePrompt.name;
         console.log('Chat container initialized');
     }
     /**
@@ -437,6 +443,42 @@ class ChatContainer {
      */
     async refresh() {
         await this.loadMessages();
+    }
+    /**
+     * Handle prompt change
+     */
+    handlePromptChange(promptId, promptName) {
+        // Skip if same prompt
+        if (promptId === this.lastPromptId)
+            return;
+        // Add visual indicator in chat
+        if (this.messages.length > 0 && this.lastPromptId) {
+            this.addPromptChangeIndicator(this.lastPromptName, promptName);
+        }
+        this.lastPromptId = promptId;
+        this.lastPromptName = promptName;
+    }
+    /**
+     * Add prompt change indicator to chat
+     */
+    addPromptChangeIndicator(fromName, toName) {
+        const indicator = document.createElement('div');
+        indicator.className = 'prompt-change-indicator';
+        indicator.innerHTML = `
+      <span class="prompt-change-line"></span>
+      <span class="prompt-change-text">Switched to "${this.escapeHtml(toName)}"</span>
+      <span class="prompt-change-line"></span>
+    `;
+        this.messagesContainer.appendChild(indicator);
+        this.scrollToBottom();
+    }
+    /**
+     * Escape HTML for safe display
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 }
 exports.ChatContainer = ChatContainer;
