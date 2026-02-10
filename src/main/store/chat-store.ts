@@ -10,7 +10,8 @@ import {
   ChatSession,
   ChatSettings,
   LLMProvider,
-  MessageRole
+  MessageRole,
+  SessionUsageStats
 } from '../../shared/types';
 
 interface ChatStoreData {
@@ -20,7 +21,7 @@ interface ChatStoreData {
 }
 
 const DEFAULT_SETTINGS: ChatSettings = {
-  selectedProvider: 'claude',
+  selectedProvider: 'anthropic',
   maxHistoryMessages: 100,
   autoScroll: true
 };
@@ -145,6 +146,11 @@ export class ChatStore {
     sessions[sessionIndex].messages.push(newMessage);
     sessions[sessionIndex].updatedAt = Date.now();
 
+    // Update session usage stats if this message has token info
+    if (message.metadata?.inputTokens || message.metadata?.outputTokens) {
+      this.updateSessionUsage(sessions[sessionIndex], message.metadata);
+    }
+
     // Update title based on first user message
     if (
       message.role === 'user' &&
@@ -253,5 +259,39 @@ export class ChatStore {
   getActiveSession(): ChatSession | null {
     const activeId = this.getActiveSessionId();
     return this.getSession(activeId);
+  }
+
+  /**
+   * Update session usage statistics
+   */
+  private updateSessionUsage(session: ChatSession, metadata: any): void {
+    if (!session.usageStats) {
+      session.usageStats = {
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCost: 0,
+        messageCount: 0
+      };
+    }
+
+    if (metadata.inputTokens) {
+      session.usageStats.totalInputTokens += metadata.inputTokens;
+    }
+    if (metadata.outputTokens) {
+      session.usageStats.totalOutputTokens += metadata.outputTokens;
+    }
+    if (metadata.cost) {
+      session.usageStats.totalCost += metadata.cost;
+    }
+    session.usageStats.messageCount++;
+  }
+
+  /**
+   * Get session usage stats
+   */
+  getSessionUsage(sessionId?: string): SessionUsageStats | null {
+    const id = sessionId || this.getActiveSessionId();
+    const session = this.getSession(id);
+    return session?.usageStats || null;
   }
 }

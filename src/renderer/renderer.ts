@@ -8,6 +8,7 @@ import { LayoutManager } from './layout';
 import { ServerDropdown } from './components/server-dropdown';
 import { ServerModal } from './components/server-modal';
 import { ChatContainer } from './components/chat-container';
+import { SettingsModal } from './components/settings-modal';
 import type { ServerProfile, ServerFormData } from '../shared/types';
 
 // Import xterm.js CSS
@@ -19,6 +20,7 @@ let layoutManager: LayoutManager | null = null;
 let serverDropdown: ServerDropdown | null = null;
 let serverModal: ServerModal | null = null;
 let chatContainer: ChatContainer | null = null;
+let settingsModal: SettingsModal | null = null;
 let isSSHConnected = false;
 let currentServerId: string | null = null;
 
@@ -778,7 +780,6 @@ async function initializeChat(): Promise<void> {
     container,
     onSendMessage: (message) => {
       console.log('Message sent:', message);
-      // Phase 4 will handle actual LLM calls
     }
   });
 
@@ -787,7 +788,43 @@ async function initializeChat(): Promise<void> {
   // Update model badge when provider changes
   updateModelBadge();
 
+  // Initialize settings button
+  initializeSettings();
+
   console.log('Chat initialized');
+}
+
+/**
+ * Initialize settings button and modal
+ */
+function initializeSettings(): void {
+  const settingsBtn = document.getElementById('settings-btn');
+  
+  if (!settingsBtn) {
+    console.error('Settings button not found');
+    return;
+  }
+
+  settingsBtn.addEventListener('click', async () => {
+    settingsModal = new SettingsModal({
+      onClose: () => {
+        // Modal closed
+      },
+      onSettingsChange: async (settings) => {
+        // Settings changed, update UI
+        await updateModelBadge();
+        
+        // Reload chat container to pick up new settings
+        if (chatContainer) {
+          await chatContainer.initialize();
+        }
+      }
+    });
+
+    await settingsModal.show();
+  });
+
+  console.log('Settings initialized');
 }
 
 /**
@@ -800,7 +837,7 @@ function updateModelBadge(): void {
   const provider = chatContainer.getSelectedProvider();
   
   switch (provider) {
-    case 'claude':
+    case 'anthropic':
       badge.textContent = 'Claude';
       badge.style.backgroundColor = 'var(--accent-primary)';
       break;

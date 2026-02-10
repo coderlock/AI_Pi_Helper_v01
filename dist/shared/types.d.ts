@@ -85,7 +85,7 @@ export interface SSHConnectionResult {
 /**
  * LLM Provider options
  */
-export type LLMProvider = 'claude' | 'openai' | 'moonshot';
+export type LLMProvider = 'anthropic' | 'openai' | 'moonshot';
 /**
  * Chat message role
  */
@@ -102,7 +102,10 @@ export interface ChatMessage {
     isError?: boolean;
     metadata?: {
         model?: string;
-        tokens?: number;
+        inputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+        cost?: number;
     };
 }
 /**
@@ -115,6 +118,7 @@ export interface ChatSession {
     provider: LLMProvider;
     createdAt: number;
     updatedAt: number;
+    usageStats?: SessionUsageStats;
 }
 /**
  * Chat settings stored in electron-store
@@ -125,14 +129,115 @@ export interface ChatSettings {
     autoScroll: boolean;
 }
 /**
+ * Model definition
+ */
+export interface ModelDefinition {
+    id: string;
+    displayName: string;
+    provider: LLMProvider;
+    contextWindow: number;
+    pricing: {
+        input: number;
+        output: number;
+    };
+    capabilities?: {
+        vision?: boolean;
+        thinking?: boolean;
+    };
+}
+/**
  * Provider configuration (API keys stored separately in credential-store)
  */
 export interface ProviderConfig {
     provider: LLMProvider;
     displayName: string;
-    models: string[];
+    models: ModelDefinition[];
     defaultModel: string;
+    apiEndpoint: string;
     isConfigured: boolean;
+}
+/**
+ * LLM request options
+ */
+export interface LLMRequestOptions {
+    provider: LLMProvider;
+    model: string;
+    messages: LLMMessage[];
+    maxTokens?: number;
+    temperature?: number;
+    stream?: boolean;
+}
+/**
+ * LLM message format (for API calls)
+ */
+export interface LLMMessage {
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+}
+/**
+ * Token usage tracking
+ */
+export interface TokenUsage {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    estimatedCost: number;
+}
+/**
+ * LLM response (non-streaming)
+ */
+export interface LLMResponse {
+    content: string;
+    usage: TokenUsage;
+    model: string;
+    provider: LLMProvider;
+    finishReason: 'stop' | 'length' | 'error';
+}
+/**
+ * Streaming chunk
+ */
+export interface LLMStreamChunk {
+    content: string;
+    isComplete: boolean;
+    usage?: TokenUsage;
+}
+/**
+ * Session usage statistics
+ */
+export interface SessionUsageStats {
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalCost: number;
+    messageCount: number;
+}
+/**
+ * App settings
+ */
+export interface AppSettings {
+    llm: {
+        selectedProvider: LLMProvider;
+        selectedModels: {
+            anthropic: string;
+            openai: string;
+            moonshot: string;
+        };
+        temperature: number;
+        maxTokens: number;
+    };
+    ui: {
+        autoScroll: boolean;
+        showTokenCounts: boolean;
+        showCostEstimates: boolean;
+    };
+}
+/**
+ * API key status for a provider
+ */
+export interface APIKeyStatus {
+    provider: LLMProvider;
+    isSet: boolean;
+    isValid?: boolean;
+    lastTested?: number;
 }
 export declare const IPC_CHANNELS: {
     readonly TERMINAL_DATA: "terminal:data";
@@ -163,6 +268,18 @@ export declare const IPC_CHANNELS: {
     readonly CHAT_GET_SESSION: "chat:get-session";
     readonly CHAT_CREATE_SESSION: "chat:create-session";
     readonly CHAT_DELETE_SESSION: "chat:delete-session";
+    readonly LLM_SEND_MESSAGE: "llm:send-message";
+    readonly LLM_STREAM_CHUNK: "llm:stream-chunk";
+    readonly LLM_STREAM_END: "llm:stream-end";
+    readonly LLM_STREAM_ERROR: "llm:stream-error";
+    readonly LLM_CANCEL: "llm:cancel";
+    readonly LLM_GET_PROVIDERS: "llm:get-providers";
+    readonly LLM_TEST_API_KEY: "llm:test-api-key";
+    readonly SETTINGS_GET: "settings:get";
+    readonly SETTINGS_UPDATE: "settings:update";
+    readonly SETTINGS_GET_API_KEY_STATUS: "settings:get-api-key-status";
+    readonly SETTINGS_SET_API_KEY: "settings:set-api-key";
+    readonly SETTINGS_DELETE_API_KEY: "settings:delete-api-key";
 };
 export interface ElectronAPI {
     sendTerminalInput: (data: string) => void;
@@ -221,6 +338,30 @@ export interface ElectronAPI {
     getChatSession: (sessionId: string) => Promise<ChatSession | null>;
     createChatSession: (provider?: LLMProvider) => Promise<ChatSession>;
     deleteChatSession: (sessionId: string) => Promise<boolean>;
+    sendLLMMessage: (options: LLMRequestOptions) => Promise<string>;
+    onLLMStreamChunk: (callback: (data: {
+        requestId: string;
+        chunk: LLMStreamChunk;
+    }) => void) => void;
+    onLLMStreamEnd: (callback: (data: {
+        requestId: string;
+        usage: TokenUsage;
+    }) => void) => void;
+    onLLMStreamError: (callback: (data: {
+        requestId: string;
+        error: string;
+    }) => void) => void;
+    cancelLLMRequest: (requestId: string) => void;
+    getProviders: () => Promise<ProviderConfig[]>;
+    testAPIKey: (provider: LLMProvider, apiKey: string) => Promise<{
+        valid: boolean;
+        error?: string;
+    }>;
+    getSettings: () => Promise<AppSettings>;
+    updateSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>;
+    getAPIKeyStatus: () => Promise<APIKeyStatus[]>;
+    setAPIKey: (provider: LLMProvider, apiKey: string) => Promise<boolean>;
+    deleteAPIKey: (provider: LLMProvider) => Promise<boolean>;
     getPlatform: () => NodeJS.Platform;
     removeAllListeners: (channel: string) => void;
 }

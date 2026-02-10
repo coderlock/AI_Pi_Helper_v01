@@ -20,6 +20,8 @@ export declare class ChatContainer {
     private onSendMessage?;
     private isLoading;
     private renderedMessageCount;
+    private currentRequestId;
+    private currentStreamingMessage;
     constructor(options: ChatContainerOptions);
     /**
      * Initialize the chat container
@@ -58,9 +60,9 @@ export declare class ChatContainer {
      */
     private handleSendMessage;
     /**
-     * Add placeholder response (Phase 4 will replace with real LLM call)
+     * Set up streaming listeners
      */
-    private addPlaceholderResponse;
+    private setupStreamingListeners;
     /**
      * Set loading state
      */

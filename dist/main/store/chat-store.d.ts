@@ -2,7 +2,7 @@
  * Chat Store
  * Manages chat history persistence using electron-store
  */
-import { ChatMessage, ChatSession, ChatSettings, LLMProvider } from '../../shared/types';
+import { ChatMessage, ChatSession, ChatSettings, LLMProvider, SessionUsageStats } from '../../shared/types';
 export declare class ChatStore {
     private store;
     constructor();
@@ -62,5 +62,13 @@ export declare class ChatStore {
      * Get active session
      */
     getActiveSession(): ChatSession | null;
+    /**
+     * Update session usage statistics
+     */
+    private updateSessionUsage;
+    /**
+     * Get session usage stats
+     */
+    getSessionUsage(sessionId?: string): SessionUsageStats | null;
 }
 //# sourceMappingURL=chat-store.d.ts.map

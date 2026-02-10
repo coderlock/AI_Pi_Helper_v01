@@ -40,5 +40,19 @@ exports.IPC_CHANNELS = {
     CHAT_GET_SESSION: 'chat:get-session',
     CHAT_CREATE_SESSION: 'chat:create-session',
     CHAT_DELETE_SESSION: 'chat:delete-session',
+    // LLM
+    LLM_SEND_MESSAGE: 'llm:send-message',
+    LLM_STREAM_CHUNK: 'llm:stream-chunk',
+    LLM_STREAM_END: 'llm:stream-end',
+    LLM_STREAM_ERROR: 'llm:stream-error',
+    LLM_CANCEL: 'llm:cancel',
+    LLM_GET_PROVIDERS: 'llm:get-providers',
+    LLM_TEST_API_KEY: 'llm:test-api-key',
+    // Settings
+    SETTINGS_GET: 'settings:get',
+    SETTINGS_UPDATE: 'settings:update',
+    SETTINGS_GET_API_KEY_STATUS: 'settings:get-api-key-status',
+    SETTINGS_SET_API_KEY: 'settings:set-api-key',
+    SETTINGS_DELETE_API_KEY: 'settings:delete-api-key',
 };
 //# sourceMappingURL=types.js.map

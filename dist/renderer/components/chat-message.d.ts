@@ -16,6 +16,10 @@ export declare class ChatMessageComponent {
      */
     private render;
     /**
+     * Render metadata (tokens and cost)
+     */
+    private renderMetadata;
+    /**
      * Get avatar icon based on role
      */
     private getAvatarIcon;

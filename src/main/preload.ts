@@ -139,6 +139,60 @@ const electronAPI: ElectronAPI = {
   deleteChatSession: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.CHAT_DELETE_SESSION, sessionId),
 
+  // LLM
+  sendLLMMessage: (options) => 
+    ipcRenderer.invoke(IPC_CHANNELS.LLM_SEND_MESSAGE, options),
+
+  onLLMStreamChunk: (callback) => {
+    const wrappedCallback = (_event: Electron.IpcRendererEvent, data: any) => {
+      callback(data);
+    };
+    registerCallback(IPC_CHANNELS.LLM_STREAM_CHUNK, wrappedCallback);
+    ipcRenderer.on(IPC_CHANNELS.LLM_STREAM_CHUNK, wrappedCallback);
+  },
+
+  onLLMStreamEnd: (callback) => {
+    const wrappedCallback = (_event: Electron.IpcRendererEvent, data: any) => {
+      callback(data);
+    };
+    registerCallback(IPC_CHANNELS.LLM_STREAM_END, wrappedCallback);
+    ipcRenderer.on(IPC_CHANNELS.LLM_STREAM_END, wrappedCallback);
+  },
+
+  onLLMStreamError: (callback) => {
+    const wrappedCallback = (_event: Electron.IpcRendererEvent, data: any) => {
+      callback(data);
+    };
+    registerCallback(IPC_CHANNELS.LLM_STREAM_ERROR, wrappedCallback);
+    ipcRenderer.on(IPC_CHANNELS.LLM_STREAM_ERROR, wrappedCallback);
+  },
+
+  cancelLLMRequest: (requestId: string) => {
+    ipcRenderer.send(IPC_CHANNELS.LLM_CANCEL, requestId);
+  },
+
+  getProviders: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.LLM_GET_PROVIDERS),
+
+  testAPIKey: (provider, apiKey: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.LLM_TEST_API_KEY, provider, apiKey),
+
+  // Settings
+  getSettings: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET),
+
+  updateSettings: (settings) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_UPDATE, settings),
+
+  getAPIKeyStatus: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_API_KEY_STATUS),
+
+  setAPIKey: (provider, apiKey: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET_API_KEY, provider, apiKey),
+
+  deleteAPIKey: (provider) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_DELETE_API_KEY, provider),
+
   // Utility
   getPlatform: () => {
     return process.platform;

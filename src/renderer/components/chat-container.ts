@@ -25,6 +25,8 @@ export class ChatContainer {
   private onSendMessage?: (message: string) => void;
   private isLoading: boolean = false;
   private renderedMessageCount: number = 0; // Track rendered messages for incremental rendering
+  private currentRequestId: string | null = null;
+  private currentStreamingMessage: string = '';
 
   constructor(options: ChatContainerOptions) {
     this.container = options.container;
@@ -46,6 +48,9 @@ export class ChatContainer {
     
     // Attach listeners
     this.attachEventListeners();
+
+    // Set up streaming listeners
+    this.setupStreamingListeners();
 
     console.log('Chat container initialized');
   }
@@ -76,7 +81,7 @@ export class ChatContainer {
       <div class="chat-input-container" id="chat-input-container">
         <div class="chat-input-header">
           <select id="provider-select" class="provider-select" title="Select AI Provider">
-            <option value="claude" ${this.settings.selectedProvider === 'claude' ? 'selected' : ''}>
+            <option value="anthropic" ${this.settings.selectedProvider === 'anthropic' ? 'selected' : ''}>
               Claude
             </option>
             <option value="openai" ${this.settings.selectedProvider === 'openai' ? 'selected' : ''}>
@@ -146,8 +151,8 @@ export class ChatContainer {
    * Show visual feedback when provider changes
    */
   private showProviderChangeFeedback(provider: LLMProvider): void {
-    const providerNames = {
-      'claude': 'Claude',
+    const providerNames: Record<LLMProvider, string> = {
+      'anthropic': 'Claude',
       'openai': 'GPT-4',
       'moonshot': 'Moonshot'
     };
@@ -240,6 +245,11 @@ export class ChatContainer {
     if (this.isLoading || !content.trim()) return;
 
     try {
+      // Get current provider settings
+      const provider = this.providerSelect.value as LLMProvider;
+      const appSettings = await window.electronAPI.getSettings();
+      const selectedModel = appSettings.llm.selectedModels[provider];
+
       // Add user message
       const userMessage = await window.electronAPI.addChatMessage({
         role: 'user',
@@ -253,42 +263,140 @@ export class ChatContainer {
       // Show loading state
       this.setLoading(true);
 
-      // Phase 4 will add actual LLM call here
-      // For now, add a placeholder response
-      await this.addPlaceholderResponse();
+      // Prepare conversation history
+      const conversationMessages = this.messages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
 
-    } catch (error) {
+      // Send to LLM
+      this.currentStreamingMessage = '';
+      this.currentRequestId = await window.electronAPI.sendLLMMessage({
+        provider,
+        model: selectedModel,
+        messages: conversationMessages,
+        maxTokens: appSettings.llm.maxTokens,
+        temperature: appSettings.llm.temperature,
+        stream: true
+      });
+
+      // Create placeholder for streaming response
+      const assistantMessage = await window.electronAPI.addChatMessage({
+        role: 'assistant',
+        content: '', // Will be updated as we stream
+        provider
+      });
+
+      this.messages.push(assistantMessage);
+      this.renderMessages();
+
+    } catch (error: any) {
       console.error('Failed to send message:', error);
-      this.showError('Failed to send message. Please try again.');
-    } finally {
+      
+      // Add error message
+      const errorMessage = await window.electronAPI.addChatMessage({
+        role: 'assistant',
+        content: `Error: ${error.message}`,
+        isError: true
+      });
+
+      this.messages.push(errorMessage);
+      this.renderMessages();
       this.setLoading(false);
     }
   }
 
   /**
-   * Add placeholder response (Phase 4 will replace with real LLM call)
+   * Set up streaming listeners
    */
-  private async addPlaceholderResponse(): Promise<void> {
-    // Simulate typing delay
-    await new Promise(resolve => setTimeout(resolve, 500));
+  private setupStreamingListeners(): void {
+    // Handle streaming chunks
+    window.electronAPI.onLLMStreamChunk((data) => {
+      if (data.requestId !== this.currentRequestId) return;
 
-    const placeholderResponses = [
-      "I'm a placeholder response! LLM integration is coming in Phase 4. Once connected, I'll be able to help you manage your Raspberry Pi, run commands, and troubleshoot issues.",
-      "This is where the AI response will appear. In Phase 4, I'll connect to Claude, GPT-4, or Moonshot to provide real assistance.",
-      "🚧 LLM integration pending! Soon I'll be able to execute commands on your Pi and help with system administration tasks.",
-      "Hello! I'm currently in demo mode. Phase 4 will enable me to actually help you with your Raspberry Pi questions and tasks."
-    ];
-
-    const randomResponse = placeholderResponses[Math.floor(Math.random() * placeholderResponses.length)];
-
-    const assistantMessage = await window.electronAPI.addChatMessage({
-      role: 'assistant',
-      content: randomResponse,
-      provider: this.settings.selectedProvider
+      this.currentStreamingMessage += data.chunk.content;
+      
+      // Update the last message in the array
+      if (this.messages.length > 0) {
+        const lastMessage = this.messages[this.messages.length - 1];
+        if (lastMessage.role === 'assistant') {
+          lastMessage.content = this.currentStreamingMessage;
+          
+          // Update the DOM directly for streaming messages
+          const lastMessageEl = this.messagesContainer.querySelector(`.chat-message[data-message-id="${lastMessage.id}"] .message-content`);
+          if (lastMessageEl) {
+            lastMessageEl.textContent = this.currentStreamingMessage;
+          }
+          this.scrollToBottom();
+        }
+      }
     });
 
-    this.messages.push(assistantMessage);
-    this.renderMessages();
+    // Handle stream end
+    window.electronAPI.onLLMStreamEnd(async (data) => {
+      if (data.requestId !== this.currentRequestId) return;
+
+      // Update the last message with final token usage
+      if (this.messages.length > 0) {
+        const lastMessage = this.messages[this.messages.length - 1];
+        if (lastMessage.role === 'assistant') {
+          lastMessage.metadata = {
+            ...lastMessage.metadata,
+            inputTokens: data.usage.inputTokens,
+            outputTokens: data.usage.outputTokens,
+            totalTokens: data.usage.totalTokens,
+            cost: data.usage.estimatedCost
+          };
+
+          // Update in store
+          await window.electronAPI.addChatMessage({
+            role: lastMessage.role,
+            content: lastMessage.content,
+            provider: lastMessage.provider,
+            metadata: lastMessage.metadata
+          });
+
+          // Re-render the last message to show metadata
+          const lastMessageEl = this.messagesContainer.querySelector(`.chat-message[data-message-id="${lastMessage.id}"]`);
+          if (lastMessageEl) {
+            const component = new ChatMessageComponent({ message: lastMessage });
+            lastMessageEl.replaceWith(component.getElement());
+          }
+        }
+      }
+
+      this.currentRequestId = null;
+      this.currentStreamingMessage = '';
+      this.setLoading(false);
+    });
+
+    // Handle stream errors
+    window.electronAPI.onLLMStreamError(async (data) => {
+      if (data.requestId !== this.currentRequestId) return;
+
+      // Replace last message with error
+      if (this.messages.length > 0 && this.messages[this.messages.length - 1].role === 'assistant') {
+        const lastMessage = this.messages.pop();
+        // Remove from DOM
+        const lastMessageEl = this.messagesContainer.querySelector(`.chat-message[data-message-id="${lastMessage!.id}"]`);
+        lastMessageEl?.remove();
+        // Decrement rendered count since we removed a message
+        this.renderedMessageCount--;
+      }
+
+      const errorMessage = await window.electronAPI.addChatMessage({
+        role: 'assistant',
+        content: `Error: ${data.error}`,
+        isError: true
+      });
+
+      this.messages.push(errorMessage);
+      this.renderMessages();
+
+      this.currentRequestId = null;
+      this.currentStreamingMessage = '';
+      this.setLoading(false);
+    });
   }
 
   /**

@@ -11,7 +11,7 @@ exports.ChatStore = void 0;
 const electron_store_1 = __importDefault(require("electron-store"));
 const uuid_1 = require("uuid");
 const DEFAULT_SETTINGS = {
-    selectedProvider: 'claude',
+    selectedProvider: 'anthropic',
     maxHistoryMessages: 100,
     autoScroll: true
 };
@@ -114,6 +114,10 @@ class ChatStore {
         };
         sessions[sessionIndex].messages.push(newMessage);
         sessions[sessionIndex].updatedAt = Date.now();
+        // Update session usage stats if this message has token info
+        if (message.metadata?.inputTokens || message.metadata?.outputTokens) {
+            this.updateSessionUsage(sessions[sessionIndex], message.metadata);
+        }
         // Update title based on first user message
         if (message.role === 'user' &&
             sessions[sessionIndex].messages.filter(m => m.role === 'user').length === 1) {
@@ -203,6 +207,37 @@ class ChatStore {
     getActiveSession() {
         const activeId = this.getActiveSessionId();
         return this.getSession(activeId);
+    }
+    /**
+     * Update session usage statistics
+     */
+    updateSessionUsage(session, metadata) {
+        if (!session.usageStats) {
+            session.usageStats = {
+                totalInputTokens: 0,
+                totalOutputTokens: 0,
+                totalCost: 0,
+                messageCount: 0
+            };
+        }
+        if (metadata.inputTokens) {
+            session.usageStats.totalInputTokens += metadata.inputTokens;
+        }
+        if (metadata.outputTokens) {
+            session.usageStats.totalOutputTokens += metadata.outputTokens;
+        }
+        if (metadata.cost) {
+            session.usageStats.totalCost += metadata.cost;
+        }
+        session.usageStats.messageCount++;
+    }
+    /**
+     * Get session usage stats
+     */
+    getSessionUsage(sessionId) {
+        const id = sessionId || this.getActiveSessionId();
+        const session = this.getSession(id);
+        return session?.usageStats || null;
     }
 }
 exports.ChatStore = ChatStore;

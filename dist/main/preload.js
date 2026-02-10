@@ -100,6 +100,40 @@ const electronAPI = {
     getChatSession: (sessionId) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.CHAT_GET_SESSION, sessionId),
     createChatSession: (provider) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.CHAT_CREATE_SESSION, provider),
     deleteChatSession: (sessionId) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.CHAT_DELETE_SESSION, sessionId),
+    // LLM
+    sendLLMMessage: (options) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.LLM_SEND_MESSAGE, options),
+    onLLMStreamChunk: (callback) => {
+        const wrappedCallback = (_event, data) => {
+            callback(data);
+        };
+        registerCallback(types_1.IPC_CHANNELS.LLM_STREAM_CHUNK, wrappedCallback);
+        electron_1.ipcRenderer.on(types_1.IPC_CHANNELS.LLM_STREAM_CHUNK, wrappedCallback);
+    },
+    onLLMStreamEnd: (callback) => {
+        const wrappedCallback = (_event, data) => {
+            callback(data);
+        };
+        registerCallback(types_1.IPC_CHANNELS.LLM_STREAM_END, wrappedCallback);
+        electron_1.ipcRenderer.on(types_1.IPC_CHANNELS.LLM_STREAM_END, wrappedCallback);
+    },
+    onLLMStreamError: (callback) => {
+        const wrappedCallback = (_event, data) => {
+            callback(data);
+        };
+        registerCallback(types_1.IPC_CHANNELS.LLM_STREAM_ERROR, wrappedCallback);
+        electron_1.ipcRenderer.on(types_1.IPC_CHANNELS.LLM_STREAM_ERROR, wrappedCallback);
+    },
+    cancelLLMRequest: (requestId) => {
+        electron_1.ipcRenderer.send(types_1.IPC_CHANNELS.LLM_CANCEL, requestId);
+    },
+    getProviders: () => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.LLM_GET_PROVIDERS),
+    testAPIKey: (provider, apiKey) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.LLM_TEST_API_KEY, provider, apiKey),
+    // Settings
+    getSettings: () => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.SETTINGS_GET),
+    updateSettings: (settings) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.SETTINGS_UPDATE, settings),
+    getAPIKeyStatus: () => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.SETTINGS_GET_API_KEY_STATUS),
+    setAPIKey: (provider, apiKey) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.SETTINGS_SET_API_KEY, provider, apiKey),
+    deleteAPIKey: (provider) => electron_1.ipcRenderer.invoke(types_1.IPC_CHANNELS.SETTINGS_DELETE_API_KEY, provider),
     // Utility
     getPlatform: () => {
         return process.platform;

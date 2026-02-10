@@ -1,0 +1,456 @@
+/**
+ * Settings Modal Styles
+ */
+
+/* Modal Overlay */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.modal-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Modal Container */
+.modal {
+  background-color: var(--bg-primary, #1e1e1e);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  max-width: 700px;
+  width: 90%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: modalSlideIn 0.2s ease;
+}
+
+@keyframes modalSlideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.settings-modal {
+  max-width: 800px;
+}
+
+/* Modal Header */
+.modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-color, #404040);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary, #ffffff);
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--text-secondary, #a0a0a0);
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.modal-close:hover {
+  background-color: var(--hover-bg, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary, #ffffff);
+}
+
+/* Modal Body */
+.modal-body {
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* Settings Tabs */
+.settings-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color, #404040);
+  padding: 0 24px;
+  gap: 4px;
+}
+
+.settings-tab {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #a0a0a0);
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+  position: relative;
+  top: 1px;
+}
+
+.settings-tab:hover {
+  color: var(--text-primary, #ffffff);
+  background-color: var(--hover-bg, rgba(255, 255, 255, 0.05));
+}
+
+.settings-tab.active {
+  color: var(--accent-color, #007acc);
+  border-bottom-color: var(--accent-color, #007acc);
+}
+
+/* Settings Content */
+.settings-content {
+  position: relative;
+}
+
+.settings-panel {
+  display: none;
+  padding: 24px;
+}
+
+.settings-panel.active {
+  display: block;
+}
+
+/* Settings Section */
+.settings-section {
+  margin-bottom: 32px;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+}
+
+.settings-section h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--text-primary, #ffffff);
+}
+
+.settings-description {
+  font-size: 13px;
+  color: var(--text-secondary, #a0a0a0);
+  margin: 0 0 16px 0;
+  line-height: 1.5;
+}
+
+/* Settings Row */
+.settings-row {
+  margin-bottom: 20px;
+}
+
+.settings-row label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary, #ffffff);
+  margin-bottom: 8px;
+}
+
+.settings-row.checkbox label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.settings-row.checkbox input[type="checkbox"] {
+  margin-right: 10px;
+  cursor: pointer;
+}
+
+.settings-hint {
+  font-size: 12px;
+  color: var(--text-secondary, #a0a0a0);
+  margin: 6px 0 0 0;
+  font-style: italic;
+}
+
+/* Inputs */
+.settings-input,
+.settings-select {
+  width: 100%;
+  padding: 8px 12px;
+  background-color: var(--bg-secondary, #2d2d2d);
+  border: 1px solid var(--border-color, #404040);
+  border-radius: 4px;
+  color: var(--text-primary, #ffffff);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.settings-input:focus,
+.settings-select:focus {
+  outline: none;
+  border-color: var(--accent-color, #007acc);
+}
+
+.settings-input-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-input-group input[type="range"] {
+  flex: 1;
+}
+
+.settings-input-group span {
+  min-width: 40px;
+  text-align: right;
+  font-size: 14px;
+  color: var(--text-primary, #ffffff);
+  font-weight: 500;
+}
+
+/* API Key List */
+.api-key-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.api-key-item {
+  background-color: var(--bg-secondary, #2d2d2d);
+  border: 1px solid var(--border-color, #404040);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.api-key-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.api-key-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.provider-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.api-key-title h4 {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary, #ffffff);
+}
+
+.api-key-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary, #a0a0a0);
+}
+
+.api-key-status {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.api-key-status.configured {
+  color: #4caf50;
+  background-color: rgba(76, 175, 80, 0.15);
+}
+
+.api-key-status.not-configured {
+  color: var(--text-secondary, #a0a0a0);
+  background-color: rgba(160, 160, 160, 0.1);
+}
+
+.api-key-input-group {
+  display: flex;
+  gap: 8px;
+}
+
+.api-key-input {
+  flex: 1;
+  padding: 8px 12px;
+  background-color: var(--bg-primary, #1e1e1e);
+  border: 1px solid var(--border-color, #404040);
+  border-radius: 4px;
+  color: var(--text-primary, #ffffff);
+  font-size: 14px;
+  font-family: 'Courier New', monospace;
+}
+
+.api-key-input:focus {
+  outline: none;
+  border-color: var(--accent-color, #007acc);
+}
+
+.api-key-test-result {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.test-success {
+  color: #4caf50;
+}
+
+.test-error {
+  color: #f44336;
+}
+
+/* Buttons */
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.btn-primary {
+  background-color: var(--accent-color, #007acc);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #006bb3;
+}
+
+.btn-secondary {
+  background-color: transparent;
+  color: var(--text-primary, #ffffff);
+  border: 1px solid var(--border-color, #404040);
+}
+
+.btn-secondary:hover {
+  background-color: var(--hover-bg, rgba(255, 255, 255, 0.05));
+}
+
+.btn-small {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.btn-danger {
+  background-color: #f44336;
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #d32f2f;
+}
+
+.btn-icon {
+  padding: 6px;
+  background: none;
+  border: 1px solid var(--border-color, #404040);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-secondary, #a0a0a0);
+  transition: all 0.15s ease;
+}
+
+.btn-icon:hover {
+  background-color: var(--hover-bg, rgba(255, 255, 255, 0.05));
+  color: var(--text-primary, #ffffff);
+}
+
+.btn-test-key:disabled,
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Modal Footer */
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color, #404040);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+/* Icon Button (settings button) */
+.icon-button {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--text-secondary, #a0a0a0);
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.icon-button:hover {
+  background-color: var(--hover-bg, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary, #ffffff);
+}
+
+/* Model Settings */
+.model-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Metadata Display in Messages */
+.message-metadata {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 11px;
+  color: var(--text-secondary, #a0a0a0);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.meta-detail {
+  opacity: 0.7;
+}
+
+.meta-cost {
+  color: #ffd700;
+  font-weight: 500;
+}

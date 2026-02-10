@@ -6,11 +6,13 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import { PtyManager } from './pty';
-import { IPC_CHANNELS, ServerFormData, SSHConnectionResult, ChatMessage, ChatSettings, LLMProvider } from '../shared/types';
+import { IPC_CHANNELS, ServerFormData, SSHConnectionResult, ChatMessage, ChatSettings, LLMProvider, LLMRequestOptions, AppSettings } from '../shared/types';
 import { SSHManager, SSHConfig, SSHStatus } from './ssh-manager';
 import { CredentialStore } from './store/credential-store';
 import { ServerStore } from './store/server-store';
 import { ChatStore } from './store/chat-store';
+import { LLMService } from './llm/llm-service';
+import { SettingsStore } from './store/settings-store';
 
 let mainWindow: BrowserWindow | null = null;
 let ptyManager: PtyManager | null = null;
@@ -19,6 +21,8 @@ let isSSHActive = false;
 let credentialStore: CredentialStore;
 let serverStore: ServerStore;
 let chatStore: ChatStore;
+let llmService: LLMService;
+let settingsStore: SettingsStore;
 
 /**
  * Create the main application window
@@ -52,6 +56,9 @@ function createWindow(): void {
 
   // Initialize SSH manager
   initializeSSHManager();
+
+  // Set main window for LLM service
+  llmService.setMainWindow(mainWindow);
 
   // Handle window close
   mainWindow.on('closed', () => {
@@ -100,6 +107,8 @@ function initializeStores(): void {
   credentialStore = new CredentialStore();
   serverStore = new ServerStore(credentialStore);
   chatStore = new ChatStore();
+  settingsStore = new SettingsStore();
+  llmService = new LLMService(credentialStore);
   console.log('Stores initialized');
   console.log(`Secure storage available: ${credentialStore.isAvailable()}`);
 }
@@ -379,6 +388,63 @@ function setupIpcHandlers(): void {
   // Delete session
   ipcMain.handle(IPC_CHANNELS.CHAT_DELETE_SESSION, (_, sessionId: string) => {
     return chatStore.deleteSession(sessionId);
+  });
+
+  // ============== LLM HANDLERS ==============
+
+  // Send message (returns request ID for streaming)
+  ipcMain.handle(IPC_CHANNELS.LLM_SEND_MESSAGE, async (_, options: LLMRequestOptions) => {
+    try {
+      return await llmService.sendMessage(options);
+    } catch (error: any) {
+      throw new Error(error.message);
+    }
+  });
+
+  // Cancel request
+  ipcMain.on(IPC_CHANNELS.LLM_CANCEL, (_, requestId: string) => {
+    llmService.cancelRequest(requestId);
+  });
+
+  // Get providers
+  ipcMain.handle(IPC_CHANNELS.LLM_GET_PROVIDERS, () => {
+    return llmService.getProviders();
+  });
+
+  // Test API key
+  ipcMain.handle(IPC_CHANNELS.LLM_TEST_API_KEY, async (_, provider: LLMProvider, apiKey: string) => {
+    return llmService.testAPIKey(provider, apiKey);
+  });
+
+  // ============== SETTINGS HANDLERS ==============
+
+  // Get settings
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, () => {
+    return settingsStore.get();
+  });
+
+  // Update settings
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, (_, settings: Partial<AppSettings>) => {
+    return settingsStore.update(settings);
+  });
+
+  // Get API key status for all providers
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET_API_KEY_STATUS, () => {
+    const providers: LLMProvider[] = ['anthropic', 'openai', 'moonshot'];
+    return providers.map(provider => ({
+      provider,
+      isSet: llmService.hasAPIKey(provider)
+    }));
+  });
+
+  // Set API key
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_SET_API_KEY, (_, provider: LLMProvider, apiKey: string) => {
+    return llmService.setAPIKey(provider, apiKey);
+  });
+
+  // Delete API key
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_DELETE_API_KEY, (_, provider: LLMProvider) => {
+    return llmService.deleteAPIKey(provider);
   });
 }
 

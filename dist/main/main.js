@@ -45,6 +45,8 @@ const ssh_manager_1 = require("./ssh-manager");
 const credential_store_1 = require("./store/credential-store");
 const server_store_1 = require("./store/server-store");
 const chat_store_1 = require("./store/chat-store");
+const llm_service_1 = require("./llm/llm-service");
+const settings_store_1 = require("./store/settings-store");
 let mainWindow = null;
 let ptyManager = null;
 let sshManager = null;
@@ -52,6 +54,8 @@ let isSSHActive = false;
 let credentialStore;
 let serverStore;
 let chatStore;
+let llmService;
+let settingsStore;
 /**
  * Create the main application window
  */
@@ -80,6 +84,8 @@ function createWindow() {
     ptyManager = new pty_1.PtyManager(mainWindow);
     // Initialize SSH manager
     initializeSSHManager();
+    // Set main window for LLM service
+    llmService.setMainWindow(mainWindow);
     // Handle window close
     mainWindow.on('closed', () => {
         if (ptyManager) {
@@ -125,6 +131,8 @@ function initializeStores() {
     credentialStore = new credential_store_1.CredentialStore();
     serverStore = new server_store_1.ServerStore(credentialStore);
     chatStore = new chat_store_1.ChatStore();
+    settingsStore = new settings_store_1.SettingsStore();
+    llmService = new llm_service_1.LLMService(credentialStore);
     console.log('Stores initialized');
     console.log(`Secure storage available: ${credentialStore.isAvailable()}`);
 }
@@ -356,6 +364,53 @@ function setupIpcHandlers() {
     // Delete session
     electron_1.ipcMain.handle(types_1.IPC_CHANNELS.CHAT_DELETE_SESSION, (_, sessionId) => {
         return chatStore.deleteSession(sessionId);
+    });
+    // ============== LLM HANDLERS ==============
+    // Send message (returns request ID for streaming)
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.LLM_SEND_MESSAGE, async (_, options) => {
+        try {
+            return await llmService.sendMessage(options);
+        }
+        catch (error) {
+            throw new Error(error.message);
+        }
+    });
+    // Cancel request
+    electron_1.ipcMain.on(types_1.IPC_CHANNELS.LLM_CANCEL, (_, requestId) => {
+        llmService.cancelRequest(requestId);
+    });
+    // Get providers
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.LLM_GET_PROVIDERS, () => {
+        return llmService.getProviders();
+    });
+    // Test API key
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.LLM_TEST_API_KEY, async (_, provider, apiKey) => {
+        return llmService.testAPIKey(provider, apiKey);
+    });
+    // ============== SETTINGS HANDLERS ==============
+    // Get settings
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.SETTINGS_GET, () => {
+        return settingsStore.get();
+    });
+    // Update settings
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.SETTINGS_UPDATE, (_, settings) => {
+        return settingsStore.update(settings);
+    });
+    // Get API key status for all providers
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.SETTINGS_GET_API_KEY_STATUS, () => {
+        const providers = ['anthropic', 'openai', 'moonshot'];
+        return providers.map(provider => ({
+            provider,
+            isSet: llmService.hasAPIKey(provider)
+        }));
+    });
+    // Set API key
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.SETTINGS_SET_API_KEY, (_, provider, apiKey) => {
+        return llmService.setAPIKey(provider, apiKey);
+    });
+    // Delete API key
+    electron_1.ipcMain.handle(types_1.IPC_CHANNELS.SETTINGS_DELETE_API_KEY, (_, provider) => {
+        return llmService.deleteAPIKey(provider);
     });
 }
 /**

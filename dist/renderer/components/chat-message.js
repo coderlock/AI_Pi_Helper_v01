@@ -45,6 +45,13 @@ class ChatMessageComponent {
         content.className = 'message-content';
         content.textContent = this.message.content;
         contentWrapper.appendChild(content);
+        // Metadata (tokens and cost) for assistant messages
+        if (this.message.role === 'assistant' && this.message.metadata) {
+            const metadata = this.renderMetadata();
+            if (metadata) {
+                contentWrapper.appendChild(metadata);
+            }
+        }
         // Actions (copy button)
         const actions = document.createElement('div');
         actions.className = 'message-actions';
@@ -64,6 +71,34 @@ class ChatMessageComponent {
         contentWrapper.appendChild(actions);
         wrapper.appendChild(contentWrapper);
         return wrapper;
+    }
+    /**
+     * Render metadata (tokens and cost)
+     */
+    renderMetadata() {
+        if (!this.message.metadata)
+            return null;
+        const meta = this.message.metadata;
+        if (!meta.totalTokens && !meta.cost)
+            return null;
+        const metadataEl = document.createElement('div');
+        metadataEl.className = 'message-metadata';
+        const parts = [];
+        if (meta.model) {
+            parts.push(`<span class="meta-item">🤖 ${meta.model}</span>`);
+        }
+        if (meta.totalTokens) {
+            parts.push(`<span class="meta-item">📊 ${meta.totalTokens.toLocaleString()} tokens</span>`);
+        }
+        if (meta.inputTokens && meta.outputTokens) {
+            parts.push(`<span class="meta-item meta-detail">(${meta.inputTokens.toLocaleString()} in / ${meta.outputTokens.toLocaleString()} out)</span>`);
+        }
+        if (meta.cost && meta.cost > 0) {
+            const costStr = meta.cost < 0.01 ? '< $0.01' : `$${meta.cost.toFixed(4)}`;
+            parts.push(`<span class="meta-item meta-cost">💰 ${costStr}</span>`);
+        }
+        metadataEl.innerHTML = parts.join(' ');
+        return metadataEl;
     }
     /**
      * Get avatar icon based on role
@@ -102,7 +137,7 @@ class ChatMessageComponent {
         if (!this.message.provider)
             return 'Assistant';
         switch (this.message.provider) {
-            case 'claude':
+            case 'anthropic':
                 return 'Claude';
             case 'openai':
                 return 'ChatGPT';
